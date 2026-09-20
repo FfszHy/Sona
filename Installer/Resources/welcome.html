@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, "PingFang SC", sans-serif; font-size: 13px; line-height: 1.7; color: #222; margin: 0 8px; }
+  h1 { font-size: 17px; margin: 0 0 10px; }
+  ul { padding-left: 20px; margin: 6px 0; }
+  code { font-family: Menlo, monospace; font-size: 12px; }
+  .note { color: #555; }
+</style>
+</head>
+<body>
+<h1>安装 Sona</h1>
+<p>Sona 是一个菜单栏工具：为每个应用单独调音量，并把不同应用送到不同的输出设备。安装程序会放置三样东西：</p>
+<ul>
+  <li><b>Sona.app</b> → 「应用程序」文件夹（菜单栏界面）</li>
+  <li><b>SonaDriver.driver</b> → <code>/Library/Audio/Plug-Ins/HAL</code>（系统里的「Sona」虚拟输出设备）</li>
+  <li><b>SonaAudioService</b> → <code>/Library/PrivilegedHelperTools</code>（后台音频服务，由 launchd 常驻，负责混音和输出到真实设备）</li>
+</ul>
+<p>安装需要管理员密码。安装结束时会重新启动系统音频服务以加载驱动，<b>正在播放的声音会停顿一两秒</b>，之后自动恢复。</p>
+<p class="note">要求 macOS 26 或更高版本、Apple Silicon（M 系列芯片）的 Mac。Sona 不申请麦克风或录音权限。卸载方法见 Sona 官网，或运行 <code>sudo "/Library/Application Support/Sona/uninstall.sh"</code>。</p>
+</body>
+</html>
