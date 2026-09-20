@@ -1,0 +1,6 @@
+#!/bin/sh
+# Sona installer: preinstall. Stops what is about to be replaced; nothing here is fatal because
+# a fresh machine has none of it. Runs as root.
+launchctl bootout system/com.sona.audio-service 2>/dev/null || true
+pkill -x Sona 2>/dev/null || true
+exit 0

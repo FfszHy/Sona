@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AudioServerPlugIn_MachServices</key>
+	<array>
+		<string>com.sona.audio-service</string>
+	</array>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>SonaDriver</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.sona.driver</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>SonaDriver</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.6.0</string>
+	<key>CFBundleVersion</key>
+	<string>9</string>
+	<key>CFPlugInFactories</key>
+	<dict>
+		<key>8B5C3A2E-1D4F-4B6A-9C7E-2F0A1B3C4D5E</key>
+		<string>SonaDriver_Create</string>
+	</dict>
+	<key>CFPlugInTypes</key>
+	<dict>
+		<key>443ABAB8-E7B3-491A-B985-BEB9187030DB</key>
+		<array>
+			<string>8B5C3A2E-1D4F-4B6A-9C7E-2F0A1B3C4D5E</string>
+		</array>
+	</dict>
+</dict>
+</plist>

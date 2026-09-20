@@ -1,0 +1,27 @@
+# macOS and local tools
+.DS_Store
+.AppleDouble
+.claude/
+.codex/
+.idea/
+.vscode/
+
+# Build outputs
+**/build/
+**/.build/
+DerivedData/
+*.xcuserstate
+__pycache__/
+*.py[cod]
+
+# Local credentials and logs
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+*.log
+
+# Node
+node_modules

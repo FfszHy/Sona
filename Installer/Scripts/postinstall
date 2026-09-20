@@ -1,0 +1,35 @@
+#!/bin/sh
+# Sona installer: postinstall. Runs as root after the payload is on disk. Mirrors what
+# `sudo make install-service` and `sudo make install-driver` do from a source checkout.
+set -u
+LABEL=com.sona.audio-service
+PLIST=/Library/LaunchDaemons/$LABEL.plist
+SERVICE=/Library/PrivilegedHelperTools/SonaAudioService
+DRIVER=/Library/Audio/Plug-Ins/HAL/SonaDriver.driver
+SUPPORT="/Library/Application Support/Sona"
+
+chown root:wheel "$PLIST" "$SERVICE"
+chmod 644 "$PLIST"
+chmod 755 "$SERVICE"
+chown -R root:wheel "$DRIVER"
+mkdir -p "$SUPPORT"
+chmod 755 "$SUPPORT/uninstall.sh"
+
+# The plug-in host lives in the system launchd domain, so the service must too.
+launchctl bootout system/$LABEL 2>/dev/null || true
+launchctl bootstrap system "$PLIST" || echo "Sona: launchctl bootstrap failed; launchd will start the service at next boot" >&2
+
+# Load the driver: coreaudiod restarts and re-scans /Library/Audio/Plug-Ins/HAL. Audio that is
+# playing pauses for a moment and resumes by itself.
+killall coreaudiod 2>/dev/null || true
+
+# Show the menu bar icon right away for the person who ran the installer (not when installing
+# over SSH or from a login window, where there is no console user).
+console_user=$(stat -f %Su /dev/console 2>/dev/null || echo root)
+if [ -n "$console_user" ] && [ "$console_user" != "root" ] && [ "$console_user" != "_mbsetupuser" ]; then
+    uid=$(id -u "$console_user" 2>/dev/null || echo 0)
+    if [ "$uid" != "0" ]; then
+        launchctl asuser "$uid" sudo -u "$console_user" open -a /Applications/Sona.app >/dev/null 2>&1 || true
+    fi
+fi
+exit 0
