@@ -55,5 +55,11 @@
         }
       ]
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/install",
+      "destination": "/install.html"
+    }
   ]
 }

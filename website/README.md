@@ -30,4 +30,14 @@ npx vercel --prod      # 部署到 Vercel（首次先 npx vercel login，再 npx
 
 ## 依赖
 
-`package.json` 与 `package-lock.json` 固定了依赖版本。本机 `node_modules` 目前是指向另一个项目的符号链接（已忽略）；在其他机器或 Vercel 上 `npm install` / `npm ci` 会按 lock 文件安装独立依赖。
+`package.json` 与 `package-lock.json` 固定了依赖版本。`node_modules` 使用独立依赖目录（已忽略）；在其他机器或 Vercel 上运行 `npm ci` 即可复现。
+
+## 产品演示与安装页
+
+首页使用 GSAP ScrollTrigger 驱动原生滚动，CSS sticky 固定每个演示场景。`Scenes.tsx` 定义各幕，`Product.tsx` 复用 Sona 面板、设备菜单和桌面，`motion.ts` 负责进度、十秒播放/暂停与清理。向上滚动可倒放；播放期间再次滚动会交回滚动控制。系统开启「减少动态效果」时移除滚动固定并展示静态结果。
+
+首屏保留原有真实截图，后续演示是依据 `App/Sources/Sona/MenuContentView.swift` 重建的网页 UI，不是实机录屏，也不会改变访问者的系统音量。Sona、Safari、网易云图标来自项目与本机应用资源，桌面背景用 CSS 绘制；不包含个人桌面内容。演示覆盖音量、单/多设备输出、权限边界及偏好恢复。
+
+`install.html` 是独立的 Vite 构建入口，Vercel 将 `/install` 映射到该页面。完整安装、排错、校验和、卸载和源码指南保存在 `Install.tsx`；首页只保留三步入口，FAQ 默认全部折叠。
+
+依赖现在独立安装在 `website/node_modules`，不再链接其他项目。

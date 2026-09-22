@@ -1,0 +1,247 @@
+.install {
+  padding-block: 70px;
+  border-top: 1px solid var(--line);
+}
+.install-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.install-steps > li {
+  display: grid;
+  gap: 14px;
+  padding: 26px 0;
+  border-top: 1px solid var(--line);
+}
+.install-steps > li,
+.install-steps > li > div,
+.install-aside article {
+  min-width: 0;
+}
+.install-steps > li:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.step-index {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #8a9585;
+  font-variant-numeric: tabular-nums;
+}
+.step-index svg {
+  color: #73836c;
+}
+.install-steps h3 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  letter-spacing: -0.3px;
+}
+.install-steps p,
+.install-aside p,
+.install-aside li,
+.sub-steps li,
+.paths li {
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--muted);
+}
+.install-steps p {
+  margin: 0 0 12px;
+}
+.install-steps .button {
+  width: auto;
+  margin: 2px 0 14px;
+}
+.sub-steps {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+.sub-steps li {
+  padding-left: 4px;
+  margin-bottom: 4px;
+}
+.sub-steps li::marker {
+  color: #8a9585;
+  font-variant-numeric: tabular-nums;
+}
+.paths {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.paths li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px;
+  background: var(--soft);
+  border-radius: 6px;
+}
+.paths b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.paths span {
+  font-size: 11.5px;
+}
+.install p.alt {
+  margin-top: 4px;
+}
+.install code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  background: var(--soft);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--ink);
+  word-break: break-all;
+}
+.install pre {
+  margin: 0 0 12px;
+  padding: 13px 16px;
+  background: var(--ink);
+  color: #e9ede4;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.install pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+  word-break: normal;
+}
+.checksum {
+  font-size: 11px !important;
+  color: var(--muted);
+}
+.checksum code {
+  font-size: 10.5px;
+}
+.install-aside {
+  display: grid;
+  gap: 22px;
+  margin-top: 34px;
+}
+.install-aside article {
+  padding: 24px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+}
+.install-aside h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.install-aside h3 svg {
+  color: #73836c;
+}
+.install-aside ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.install-aside li {
+  margin-bottom: 6px;
+}
+.install-aside b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.install-aside p {
+  margin: 0 0 10px;
+}
+.install-aside a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+details p a,
+details p code {
+  color: var(--ink);
+}
+details p a {
+  text-decoration: underline;
+}
+details p code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  background: var(--soft);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.install h1 {
+  font-size: clamp(40px, 5vw, 64px);
+  letter-spacing: -2px;
+  font-weight: 500;
+  margin: 20px 0;
+}
+.install .section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-bottom: 40px;
+}
+.install .section-heading > p {
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--muted);
+  max-width: 600px;
+}
+.install-steps p,
+.install-aside p,
+.install-aside li,
+.sub-steps li,
+.paths li {
+  font-size: 14px;
+}
+.step-index,
+.step-index svg,
+.install-aside h3 svg {
+  color: var(--accent);
+}
+.install-steps pre {
+  max-width: 100%;
+}
+.install code {
+  overflow-wrap: anywhere;
+}
+.install-aside article {
+  background: transparent;
+}
+.install .checksum {
+  overflow-wrap: anywhere;
+}
+@media (min-width: 700px) {
+  .install-steps > li {
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 30px;
+  }
+  .install-aside {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .install-aside article:first-child {
+    grid-column: 1/-1;
+  }
+}
+@media (min-width: 1024px) {
+  .install {
+    max-width: 1000px;
+  }
+  .install-steps > li {
+    padding-block: 35px;
+  }
+  .install-steps > li > div {
+    max-width: 760px;
+  }
+}
