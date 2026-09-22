@@ -129,3 +129,11 @@ log show --last 2m --predicate 'subsystem == "com.sona.driver" OR subsystem == "
 ```
 
 `make loopback-tools` 可构建诊断工具，随后运行 `Tools/build/sonactl service` 读取服务状态。提交日志前请检查应用名称和设备标识等个人信息。
+
+## 许可证
+
+Copyright © 2026 Haoyang Jin.
+
+Sona 采用 [GNU General Public License v3.0](LICENSE) 授权，全文见仓库根目录的 [`LICENSE`](LICENSE)。你可以自由运行、研究、修改和重新分发本程序；修改版和基于本程序的衍生作品必须以同一许可证发布并提供对应源码，同时保留上面的版权声明。
+
+`website/public/downloads/` 里的 `.pkg` 是 `make release` 的构建产物，其源码就是本仓库内容，不额外引入本许可证之外的条款。第三方依赖与 macOS 系统框架各自的许可证不受本节影响。
