@@ -206,9 +206,10 @@ export function Install() {
               </>
             ) : (
               <>
-                源码仓库公开后，这里会给出 <code>make</code> 与{" "}
-                <code>sudo make install-service</code>、
-                <code>sudo make install-driver</code> 的完整步骤。
+                更喜欢自己编译？仓库 README 的「从源码」一节给出了 <code>make</code>{" "}
+                与 <code>sudo make install-service</code>、
+                <code>sudo make install-driver</code> 的完整步骤。仓库地址：
+                <code>github.com/FfszHy/Sona</code>。
               </>
             )}
           </p>
