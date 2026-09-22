@@ -117,6 +117,14 @@ h2 {
 .header nav a:hover {
   color: var(--accent);
 }
+.nav-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav-source svg {
+  opacity: 0.72;
+}
 .nav-download {
   display: flex;
   align-items: center;
