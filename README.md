@@ -134,6 +134,6 @@ log show --last 2m --predicate 'subsystem == "com.sona.driver" OR subsystem == "
 
 Copyright © 2026 Haoyang Jin.
 
-Sona 采用 [GNU General Public License v3.0](LICENSE) 授权，全文见仓库根目录的 [`LICENSE`](LICENSE)。你可以自由运行、研究、修改和重新分发本程序；修改版和基于本程序的衍生作品必须以同一许可证发布并提供对应源码，同时保留上面的版权声明。
+Sona 采用 [Functional Source License, Version 1.1, ALv2 Future License](LICENSE)（FSL-1.1-ALv2）授权，全文见仓库根目录的 [`LICENSE`](LICENSE)。你可以自由运行、研究、修改和重新分发本程序，包括个人使用、内部使用、非商业教育和研究；唯一限制是**竞争使用**——不得将本软件（或其衍生版本）以商业产品或服务的形式提供给他人，用来替代 Sona 或提供与其实质相同的功能。每个版本自发布之日起满两年后，该版本自动转为 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) 授权。
 
-`website/public/downloads/` 里的 `.pkg` 是 `make release` 的构建产物，其源码就是本仓库内容，不额外引入本许可证之外的条款。第三方依赖与 macOS 系统框架各自的许可证不受本节影响。
+`website/public/downloads/` 里的 `.pkg` 是 `make release` 的构建产物，其源码就是本仓库内容。官方签名公证的安装包通过官网买断销售；第三方依赖与 macOS 系统框架各自的许可证不受本节影响。
