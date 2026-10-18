@@ -9,36 +9,13 @@ import SwiftUI
 @main
 struct SonaApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var model = AppModel()
-    @StateObject private var iconAnimator = IconAnimator()
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuContentView()
-                .environmentObject(model)
-        } label: {
-            Image(nsImage: MenuBarIcon.image(for: iconState))
-                .onChange(of: model.anyPlaying, initial: true) { _, playing in
-                    iconAnimator.setPlaying(playing && model.isActive && !model.outputsMuted)
-                }
-                .onChange(of: model.isActive) { _, _ in
-                    iconAnimator.setPlaying(model.anyPlaying && model.isActive && !model.outputsMuted)
-                }
-                .onChange(of: model.outputsMuted) { _, _ in
-                    iconAnimator.setPlaying(model.anyPlaying && model.isActive && !model.outputsMuted)
-                }
-        }
-        .menuBarExtraStyle(.window)
-    }
-
-    private var iconState: MenuBarIcon.State {
-        if model.isActive && model.outputsMuted { return .muted }
-        if iconAnimator.isPlaying { return .playing(frame: iconAnimator.frame) }
-        return .idle
+        Settings { EmptyView() }
     }
 }
 
-/// Cycles the "playing" icon through its three ring frames while audio is flowing.
+/// Cycles the shared mark through three opacity frames while audio is flowing.
 @MainActor
 final class IconAnimator: ObservableObject {
     @Published private(set) var frame = 0
@@ -62,8 +39,19 @@ final class IconAnimator: ObservableObject {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var model: AppModel?
+    private var statusItemController: StatusItemController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        let model = AppModel()
+        self.model = model
+        statusItemController = StatusItemController(model: model)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.restoreSystemOutput()
     }
 }

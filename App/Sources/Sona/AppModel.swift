@@ -184,9 +184,13 @@ final class AppModel: ObservableObject {
     }
 
     func setMasterVolume(_ v: Double) {
-        guard let id = driver.deviceID else { return }
-        masterVolume = v
-        AudioSystem.setFloat32(id, kAudioDevicePropertyVolumeScalar, scope: kAudioObjectPropertyScopeOutput, Float32(v))
+        guard v.isFinite, let id = driver.deviceID else { return }
+        let volume = min(max(v, 0), 1)
+        masterVolume = volume
+        AudioSystem.setFloat32(id, kAudioDevicePropertyVolumeScalar, scope: kAudioObjectPropertyScopeOutput, Float32(volume))
+        // Zero volume is already silent. Clear a separate mute latch so the system's
+        // volume-only keyboard writes can raise the level again.
+        setMasterMuted(false)
     }
 
     func setMasterMuted(_ m: Bool) {
@@ -208,7 +212,7 @@ final class AppModel: ObservableObject {
 
     var outputsMuted: Bool {
         let devices = routedOutputDevices
-        return !devices.isEmpty && devices.allSatisfy { outputMuted($0.uid) }
+        return !devices.isEmpty && devices.allSatisfy { outputMuted($0.uid) || outputVolume($0.uid) == 0 }
     }
 
     func outputVolume(_ uid: String) -> Double {
@@ -253,14 +257,18 @@ final class AppModel: ObservableObject {
     }
 
     func setOutputVolume(_ volume: Double, uid: String) {
+        guard volume.isFinite else { return }
+        let volume = min(max(volume, 0), 1)
         if uid == defaultTargetUID {
             requestedOutputVolumes.removeValue(forKey: uid)
+            requestedOutputMutes.removeValue(forKey: uid)
             setMasterVolume(volume)
             return
         }
         requestedOutputVolumes[uid] = volume
+        requestedOutputMutes[uid] = false
         outputRevisions[uid, default: 0] += 1
-        outputWriter.submit(uid: uid, volume: volume)
+        outputWriter.submit(uid: uid, volume: volume, mute: false)
     }
 
     func setOutputMuted(_ mute: Bool, uid: String) {
@@ -411,6 +419,15 @@ final class AppModel: ObservableObject {
 
     func setting(for key: String) -> AppAudioSetting {
         appSettings[key] ?? AppAudioSetting()
+    }
+
+    func setAppVolume(_ volume: Double, for key: String) {
+        guard volume.isFinite else { return }
+        let volume = min(max(volume, 0), 1)
+        update(key) {
+            $0.volume = volume
+            $0.mute = volume == 0
+        }
     }
 
     func update(_ key: String, _ change: (inout AppAudioSetting) -> Void) {
