@@ -104,13 +104,25 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
             hidePanel()
         } else {
             isPanelPresented = true
+            transitionID += 1
+            let openingTransition = transitionID
             panel.ignoresMouseEvents = false
             panel.reducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             updatePanelFrame()
             if !panel.isVisible { panel.revealProgress = 0 }
             panel.makeKeyAndOrderFront(nil)
+            // Finish the hosting view's first layout and drawing before starting
+            // the clock, so that work cannot consume the low-opacity entrance.
+            panel.contentView?.layoutSubtreeIfNeeded()
+            panel.displayIfNeeded()
             sender.highlight(true)
-            animatePanel(to: 1)
+            // Let the status-button's mouse tracking and initial window update
+            // finish before the animation clock starts.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isPanelPresented,
+                      self.transitionID == openingTransition else { return }
+                self.animatePanel(to: 1)
+            }
         }
     }
 
@@ -128,10 +140,10 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         panel.reducesMotion = reduceMotion
         let remaining = abs(progress - panel.revealProgress)
-        let duration = animated ? (reduceMotion ? 0.1 : (progress == 1 ? 0.2 : 0.14)) * Double(remaining) : 0
+        let duration = animated ? (reduceMotion ? 0.14 : (progress == 1 ? 0.26 : 0.18)) * Double(remaining) : 0
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0, 0.25, 1)
             panel.animator().revealProgress = progress
         } completionHandler: { [weak self] in
             Task { @MainActor in
@@ -224,7 +236,7 @@ private final class SoundPanel: NSPanel {
     private func revealedFrame(_ frame: NSRect) -> NSRect {
         // Move the whole native surface toward its menu-bar source without
         // resizing the glass, text or controls during the transition.
-        frame.offsetBy(dx: 0, dy: reducesMotion ? 0 : 4 * (1 - revealProgress))
+        frame.offsetBy(dx: 0, dy: reducesMotion ? 0 : 12 * (1 - revealProgress))
     }
 
     override var canBecomeKey: Bool { true }
