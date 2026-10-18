@@ -21,12 +21,14 @@ Sona uses a virtual audio output and a separate audio service. It does not reque
 
 ## Get started
 
-**Preview · macOS 26 or later · Apple Silicon**
+**0.6.1 Preview · macOS 26 or later · Apple Silicon**
 
-For the interface shown above, [build and install the latest source](docs/BUILDING.md). The existing [0.6.0 preview installer](https://github.com/FfszHy/Sona/raw/refs/heads/main/website/public/downloads/Sona-0.6.0.pkg) was built on September 20, 2026 and predates these interface updates. It is not Developer ID signed or notarized; see the [installation guide](docs/BUILDING.md#preview-installer).
+[Download Sona 0.6.1](https://github.com/FfszHy/Sona/releases/download/v0.6.1/Sona-0.6.1.pkg) · [Release notes](https://github.com/FfszHy/Sona/releases/tag/v0.6.1)
 
-1. Open Sona and click its menu bar icon.
-2. Choose your default output with the device button beside **声音** (Sound).
+The preview is not Developer ID signed or notarized. If macOS blocks the installer, use **Open Anyway** in System Settings → Privacy & Security. See the [installation guide](docs/BUILDING.md#preview-installer) for checksum verification and details.
+
+1. Run the installer with administrator access, then open Sona.
+2. Click the menu bar icon and choose your default output with the device button beside **声音** (Sound).
 3. Play audio. Apps appear under **应用** (Apps), with their own volume and output controls.
 
 Right-click the menu bar icon for login launch, automatic device switching and Quit. On normal exit, Sona attempts to restore the physical output.

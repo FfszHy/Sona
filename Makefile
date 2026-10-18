@@ -109,8 +109,8 @@ app: $(APP_DIR)/Resources/AppIcon.icns
 	cd $(APP_DIR) && $(SWIFT_BUILD) -c release --arch arm64
 	rm -rf $(APP_OUT)
 	mkdir -p $(APP_OUT)/Contents/MacOS $(APP_OUT)/Contents/Resources
-	cp $(APP_DIR)/.build/apple/Products/Release/Sona $(APP_OUT)/Contents/MacOS/Sona 2>/dev/null || \
-	cp $(APP_DIR)/.build/release/Sona $(APP_OUT)/Contents/MacOS/Sona
+	bin_dir="$$(cd $(APP_DIR) && $(SWIFT_BUILD) -c release --arch arm64 --show-bin-path)" && \
+		cp "$$bin_dir/Sona" $(APP_OUT)/Contents/MacOS/Sona
 	cp $(APP_DIR)/Info.plist $(APP_OUT)/Contents/Info.plist
 	cp $(APP_DIR)/Resources/AppIcon.icns $(APP_OUT)/Contents/Resources/AppIcon.icns
 	codesign --force --sign - --identifier com.sona.app $(APP_OUT)

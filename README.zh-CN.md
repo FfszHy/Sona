@@ -21,12 +21,14 @@ Sona 通过虚拟音频输出与独立音频服务处理声音，不申请麦克
 
 ## 开始使用
 
-**预览版 · macOS 26 或更高版本 · Apple Silicon**
+**0.6.1 预览版 · macOS 26 或更高版本 · Apple Silicon**
 
-要使用截图中的最新界面，请[构建并安装当前源码](docs/BUILDING.md)。现有的 [0.6.0 预览安装包](https://github.com/FfszHy/Sona/raw/refs/heads/main/website/public/downloads/Sona-0.6.0.pkg) 构建于 2026 年 9 月 20 日，尚未包含这些界面更新；它未使用 Developer ID 签名，也未经过 Apple 公证，安装方法见[安装指南](docs/BUILDING.md#preview-installer)。
+[下载 Sona 0.6.1](https://github.com/FfszHy/Sona/releases/download/v0.6.1/Sona-0.6.1.pkg) · [版本说明](https://github.com/FfszHy/Sona/releases/tag/v0.6.1)
 
-1. 打开 Sona，点击菜单栏图标。
-2. 点击「声音」右侧的设备按钮，选择默认输出。
+此预览版未使用 Developer ID 签名，也未经过 Apple 公证。如果 macOS 拦截安装器，请在「系统设置 → 隐私与安全性」中选择「仍要打开」。校验安装包与详细步骤见[安装指南](docs/BUILDING.md#preview-installer)。
+
+1. 使用管理员权限运行安装包，然后打开 Sona。
+2. 点击菜单栏图标，再点击「声音」右侧的设备按钮，选择默认输出。
 3. 播放音频后，应用会显示在「应用」列表中，可分别调节音量和选择输出。
 
 右键点击菜单栏图标，可设置登录启动、新设备自动切换或退出。正常退出时，Sona 会尝试恢复物理输出设备。

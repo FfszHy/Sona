@@ -34,16 +34,24 @@ If the service is unavailable, audio may be silent. Select a physical device in 
 
 ## Preview installer
 
-The repository retains `website/public/downloads/Sona-0.6.0.pkg`, built on September 20, 2026. It predates the current panel, icon and slider updates. Its checksum is recorded in the adjacent `.sha256` file and `website/src/release.ts`.
+[Sona 0.6.1 Preview](https://github.com/FfszHy/Sona/releases/tag/v0.6.1) (build 10) includes the current panel, icon and slider updates. Download the installer and its checksum from the same release.
 
 This preview is not Developer ID signed or notarized. If macOS blocks it, open System Settings → Privacy & Security and use **Open Anyway** for the installer. To install from Terminal:
 
 ```sh
-shasum -a 256 ~/Downloads/Sona-0.6.0.pkg
-sudo installer -pkg ~/Downloads/Sona-0.6.0.pkg -target /
+cd ~/Downloads
+curl -fLO https://github.com/FfszHy/Sona/releases/download/v0.6.1/Sona-0.6.1.pkg
+curl -fLO https://github.com/FfszHy/Sona/releases/download/v0.6.1/Sona-0.6.1.pkg.sha256
+shasum -a 256 -c Sona-0.6.1.pkg.sha256
 ```
 
-Compare the hash with the repository's checksum before installing. The installer places the app, driver, service, LaunchDaemon and uninstall script, then starts the service, restarts `coreaudiod` and opens Sona. Installing interrupts audio briefly.
+Continue with installation only if checksum verification reports `Sona-0.6.1.pkg: OK`:
+
+```sh
+sudo installer -pkg ~/Downloads/Sona-0.6.1.pkg -target /
+```
+
+The installer places the app, driver, service, LaunchDaemon and uninstall script, then starts the service, restarts `coreaudiod` and opens Sona. Installing interrupts audio briefly.
 
 ## Uninstall
 
@@ -75,6 +83,14 @@ make release
 ```
 
 This builds the native components, writes `build/release/Sona-<version>.pkg` and `.sha256`, copies them to `website/public/downloads/`, and updates `website/src/release.ts` and the `/download` redirect. Version values must agree across `App/Info.plist`, `Driver/Info.plist` and `Shared/SonaProtocol.h`.
+
+For GitHub Release assets, set the download base while packaging:
+
+```sh
+SONA_SOURCE_URL=https://github.com/FfszHy/Sona \
+SONA_DOWNLOAD_BASE=https://github.com/FfszHy/Sona/releases/download/v0.6.1 \
+make release
+```
 
 Without credentials the binaries are ad-hoc signed and the installer is unsigned. For Developer ID signing and notarization, configure `SONA_APP_IDENTITY`, `SONA_INSTALLER_IDENTITY` and `SONA_NOTARY_PROFILE` as documented in [the packaging script](../Installer/build-installer.sh). `SONA_SOURCE_URL` sets the source link; `SONA_DOWNLOAD_BASE` can point downloads to GitHub Release assets. Follow the [release checklist](RELEASE-CHECKLIST.md), including installation, upgrade and uninstall verification.
 
