@@ -9,12 +9,13 @@
 
 ## 发布前仍需项目作者确认
 
-- [ ] 选择开源许可证并确认版权署名。
+- [x] 已采用 FSL-1.1-ALv2，版权署名见仓库根目录 `LICENSE`。这是源码可见许可证，不应表述为无限制商用。
 - [ ] 确认源码的原创或授权来源；目前没有足以逐文件证明来源的历史记录。
 - [ ] 确认 `pic/` 图片及 `App/Resources/AppIcon.icns` 可公开分发。现有文件无法自行证明图片授权。
-- [ ] 检查截图中展示的应用、设备及个人内容是否适合公开。
+- [x] 当前 README 实机截图由项目作者于 2026-10-19 提供并要求用于公开仓库，原图未修饰；后续新增截图仍需检查公开范围。
 - [ ] 按兼容性记录完成拟宣称支持的平台和设备验证。
-- [ ] 创建 GitHub 仓库、推送源码并发布预览版（目前尚未执行）。
+- [x] 已有公开源码仓库：`https://github.com/FfszHy/Sona`，默认分支为 `main`。
+- [ ] 创建 GitHub Release；当前仓库尚无 Release，网站保留的 0.6.0 安装包早于最新界面更新。
 - [ ] 加入 Apple Developer Program，创建 Developer ID Application / Installer 证书，`xcrun notarytool store-credentials` 保存公证凭据，然后带着 `SONA_APP_IDENTITY`、`SONA_INSTALLER_IDENTITY`、`SONA_NOTARY_PROFILE` 重新 `make release`。在此之前安装包未签名、未公证，用户首次打开需在「隐私与安全性」里允许。
 
 ## 安装包发布流程（2026-09-20 起）
