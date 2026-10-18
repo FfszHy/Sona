@@ -15,7 +15,7 @@
 - [x] 当前 README 实机截图由项目作者于 2026-10-19 提供并要求用于公开仓库，原图未修饰；后续新增截图仍需检查公开范围。
 - [ ] 按兼容性记录完成拟宣称支持的平台和设备验证。
 - [x] 已有公开源码仓库：`https://github.com/FfszHy/Sona`，默认分支为 `main`。
-- [ ] 发布 `v0.6.1` GitHub Preview Release，上传 `Sona-0.6.1.pkg` 与 `Sona-0.6.1.pkg.sha256`，并回读验证远端资产校验值。
+- [x] 已发布 [v0.6.1 Preview Release](https://github.com/FfszHy/Sona/releases/tag/v0.6.1)，源码标签指向 `253e8b2`；已上传 `Sona-0.6.1.pkg` 与 `.sha256`，草稿回下载、GitHub 资产摘要和公开下载地址均已核对一致。
 - [ ] 加入 Apple Developer Program，创建 Developer ID Application / Installer 证书，`xcrun notarytool store-credentials` 保存公证凭据，然后带着 `SONA_APP_IDENTITY`、`SONA_INSTALLER_IDENTITY`、`SONA_NOTARY_PROFILE` 重新 `make release`。在此之前安装包未签名、未公证，用户首次打开需在「隐私与安全性」里允许。
 
 ## 0.6.1 安装包发布流程（2026-10-19）
