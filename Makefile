@@ -111,6 +111,8 @@ app: $(APP_DIR)/Resources/AppIcon.icns
 	mkdir -p $(APP_OUT)/Contents/MacOS $(APP_OUT)/Contents/Resources
 	bin_dir="$$(cd $(APP_DIR) && $(SWIFT_BUILD) -c release --arch arm64 --show-bin-path)" && \
 		cp "$$bin_dir/Sona" $(APP_OUT)/Contents/MacOS/Sona
+	# Keep local Swift build paths out of the distributed binary.
+	xcrun strip -S $(APP_OUT)/Contents/MacOS/Sona
 	cp $(APP_DIR)/Info.plist $(APP_OUT)/Contents/Info.plist
 	cp $(APP_DIR)/Resources/AppIcon.icns $(APP_OUT)/Contents/Resources/AppIcon.icns
 	codesign --force --sign - --identifier com.sona.app $(APP_OUT)

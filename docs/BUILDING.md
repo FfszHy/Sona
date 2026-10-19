@@ -26,7 +26,7 @@ Installing the driver writes to `/Library/Audio/Plug-Ins/HAL` and restarts `core
 
 ## Using the current interface
 
-Click the menu bar icon to open the sound panel. The top device button selects the default physical output; its slider controls that output's volume. Playing apps appear below with independent volume sliders and device menus. An app can follow the default output or use one or more selected devices. Multiple routed outputs expose separate device volume controls.
+Click the menu bar icon to open the sound panel. The top sound card selects the default physical output and controls device volumes. Playing app cards show output-device buttons; selecting a device reveals its independent app volume slider. Apps initially follow the default output, and can be routed to one or more chosen devices. Clearing all devices silences that app; an explicitly selected device becoming unavailable does not send its audio to the default speakers.
 
 Sona activates its virtual output automatically when the driver connects. There is no main on/off switch in the current interface. Right-click the menu bar icon for login launch, automatic switching to newly connected devices and Quit. Normal exit attempts to restore the selected physical output.
 
@@ -34,21 +34,21 @@ If the service is unavailable, audio may be silent. Select a physical device in 
 
 ## Preview installer
 
-[Sona 0.6.1 Preview](https://github.com/FfszHy/Sona/releases/tag/v0.6.1) (build 10) includes the current panel, icon and slider updates. Download the installer and its checksum from the same release.
+[Sona 0.6.2 Preview](https://github.com/FfszHy/Sona/releases/tag/v0.6.2) (build 11) includes per-app, per-device volume controls and smoother panel transitions. Download the installer and its checksum from the same release. Upgrade with the complete installer so the App and audio service both support independent device volumes.
 
 This preview is not Developer ID signed or notarized. If macOS blocks it, open System Settings → Privacy & Security and use **Open Anyway** for the installer. To install from Terminal:
 
 ```sh
 cd ~/Downloads
-curl -fLO https://github.com/FfszHy/Sona/releases/download/v0.6.1/Sona-0.6.1.pkg
-curl -fLO https://github.com/FfszHy/Sona/releases/download/v0.6.1/Sona-0.6.1.pkg.sha256
-shasum -a 256 -c Sona-0.6.1.pkg.sha256
+curl -fLO https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg
+curl -fLO https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg.sha256
+shasum -a 256 -c Sona-0.6.2.pkg.sha256
 ```
 
-Continue with installation only if checksum verification reports `Sona-0.6.1.pkg: OK`:
+Continue with installation only if checksum verification reports `Sona-0.6.2.pkg: OK`:
 
 ```sh
-sudo installer -pkg ~/Downloads/Sona-0.6.1.pkg -target /
+sudo installer -pkg ~/Downloads/Sona-0.6.2.pkg -target /
 ```
 
 The installer places the app, driver, service, LaunchDaemon and uninstall script, then starts the service, restarts `coreaudiod` and opens Sona. Installing interrupts audio briefly.

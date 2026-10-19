@@ -12,6 +12,10 @@
 #   SONA_NOTARY_PROFILE=<profile from `xcrun notarytool store-credentials`>
 #
 set -eu
+umask 022
+# Finder metadata and resource forks must not become AppleDouble payload entries.
+# The code signatures are stored in the binaries and _CodeSignature resources.
+export COPYFILE_DISABLE=1
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$ROOT/App/Info.plist")
 OUT="$ROOT/build/release"
@@ -36,26 +40,31 @@ rm -rf "$STAGE"
 R="$STAGE/root"
 mkdir -p "$R/Applications" "$R/Library/Audio/Plug-Ins/HAL" "$R/Library/LaunchDaemons" \
          "$R/Library/PrivilegedHelperTools" "$R/Library/Application Support/Sona" "$STAGE/scripts"
-cp -R "$APP" "$R/Applications/Sona.app"
-cp -R "$DRIVER" "$R/Library/Audio/Plug-Ins/HAL/SonaDriver.driver"
-cp "$SERVICE" "$R/Library/PrivilegedHelperTools/SonaAudioService"
-cp "$PLIST" "$R/Library/LaunchDaemons/com.sona.audio-service.plist"
-cp "$ROOT/Installer/uninstall.sh" "$R/Library/Application Support/Sona/uninstall.sh"
-cp "$ROOT/Installer/Scripts/preinstall" "$ROOT/Installer/Scripts/postinstall" "$STAGE/scripts/"
+cp -R -X "$APP" "$R/Applications/Sona.app"
+cp -R -X "$DRIVER" "$R/Library/Audio/Plug-Ins/HAL/SonaDriver.driver"
+cp -X "$SERVICE" "$R/Library/PrivilegedHelperTools/SonaAudioService"
+cp -X "$PLIST" "$R/Library/LaunchDaemons/com.sona.audio-service.plist"
+cp -X "$ROOT/Installer/uninstall.sh" "$R/Library/Application Support/Sona/uninstall.sh"
+cp -X "$ROOT/Installer/Scripts/preinstall" "$ROOT/Installer/Scripts/postinstall" "$STAGE/scripts/"
+cp -R -X "$ROOT/Installer/Resources" "$STAGE/resources"
+# Keep bundles writable for signing, with readable payloads and traversable directories.
+chmod -R u+rwX,go+rX,go-w "$STAGE"
 chmod 755 "$STAGE/scripts/preinstall" "$STAGE/scripts/postinstall" "$R/Library/Application Support/Sona/uninstall.sh" \
           "$R/Library/PrivilegedHelperTools/SonaAudioService"
 chmod 644 "$R/Library/LaunchDaemons/com.sona.audio-service.plist"
-find "$R" -name .DS_Store -delete
+find "$STAGE" \( -name .DS_Store -o -name '._*' \) -delete
 
 echo "== signing (identity: $APP_IDENTITY)"
-if [ "$APP_IDENTITY" = "-" ]; then
-    SIGN="codesign --force --sign -"
-else
-    SIGN="codesign --force --options runtime --timestamp --sign $APP_IDENTITY"
-fi
-$SIGN --identifier com.sona.audio-service "$R/Library/PrivilegedHelperTools/SonaAudioService"
-$SIGN --identifier com.sona.driver "$R/Library/Audio/Plug-Ins/HAL/SonaDriver.driver"
-$SIGN --identifier com.sona.app "$R/Applications/Sona.app"
+sign_component() {
+    if [ "$APP_IDENTITY" = "-" ]; then
+        codesign --force --sign - "$@"
+    else
+        codesign --force --options runtime --timestamp --sign "$APP_IDENTITY" "$@"
+    fi
+}
+sign_component --identifier com.sona.audio-service "$R/Library/PrivilegedHelperTools/SonaAudioService"
+sign_component --identifier com.sona.driver "$R/Library/Audio/Plug-Ins/HAL/SonaDriver.driver"
+sign_component --identifier com.sona.app "$R/Applications/Sona.app"
 codesign --verify --strict "$R/Applications/Sona.app" "$R/Library/Audio/Plug-Ins/HAL/SonaDriver.driver" "$R/Library/PrivilegedHelperTools/SonaAudioService"
 
 echo "== component package"
@@ -72,17 +81,21 @@ for e in entries:
     e["BundleOverwriteAction"] = "upgrade"
 with open(path, "wb") as f: plistlib.dump(entries, f)
 EOF
-pkgbuild --root "$R" --component-plist "$STAGE/component.plist" --scripts "$STAGE/scripts" \
-         --identifier com.sona.pkg --version "$VERSION" --install-location / "$STAGE/Sona-component.pkg" >/dev/null
+pkgbuild --root "$R" --ownership recommended --component-plist "$STAGE/component.plist" --scripts "$STAGE/scripts" \
+         --identifier com.sona.pkg --version "$VERSION" --install-location / "$STAGE/Sona-component-raw.pkg" >/dev/null
+# macOS may add provenance to new files even when copying with -X; pkgbuild
+# serializes it despite COPYFILE_DISABLE. Remove only that metadata from both
+# raw cpio archives, without touching the signed payload files or scripts.
+python3 "$ROOT/Installer/sanitize-package.py" "$STAGE/Sona-component-raw.pkg" "$STAGE/Sona-component.pkg"
 
 echo "== product package"
 sed "s/@VERSION@/$VERSION/g" "$ROOT/Installer/Distribution.xml" > "$STAGE/Distribution.xml"
 rm -f "$PKG"
 if [ -n "$INSTALLER_IDENTITY" ]; then
-    productbuild --distribution "$STAGE/Distribution.xml" --resources "$ROOT/Installer/Resources" \
+    productbuild --distribution "$STAGE/Distribution.xml" --resources "$STAGE/resources" \
                  --package-path "$STAGE" --sign "$INSTALLER_IDENTITY" "$PKG" >/dev/null
 else
-    productbuild --distribution "$STAGE/Distribution.xml" --resources "$ROOT/Installer/Resources" \
+    productbuild --distribution "$STAGE/Distribution.xml" --resources "$STAGE/resources" \
                  --package-path "$STAGE" "$PKG" >/dev/null
 fi
 

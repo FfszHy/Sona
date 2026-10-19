@@ -12,7 +12,7 @@ Actual application screenshot, provided by the project author.
 
 ## Features
 
-- **App volume.** Adjust each playing app independently; slide to zero to mute.
+- **App volume.** Adjust each app's volume separately for each selected output; slide to zero to mute that route.
 - **Output routing.** Use the default output, choose a device per app, or play through several devices at once.
 - **Device controls.** Adjust output volumes and switch the default device from one panel.
 - **Remembered settings.** Keep app volumes and output choices between sessions. Login launch and automatic switching to newly connected devices are optional.
@@ -21,15 +21,15 @@ Sona uses a virtual audio output and a separate audio service. It does not reque
 
 ## Get started
 
-**0.6.1 Preview · macOS 26 or later · Apple Silicon**
+**0.6.2 Preview · macOS 26 or later · Apple Silicon**
 
-[Download Sona 0.6.1](https://github.com/FfszHy/Sona/releases/download/v0.6.1/Sona-0.6.1.pkg) · [Release notes](https://github.com/FfszHy/Sona/releases/tag/v0.6.1)
+[Download Sona 0.6.2](https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg) · [Release notes](https://github.com/FfszHy/Sona/releases/tag/v0.6.2)
 
 The preview is not Developer ID signed or notarized. If macOS blocks the installer, use **Open Anyway** in System Settings → Privacy & Security. See the [installation guide](docs/BUILDING.md#preview-installer) for checksum verification and details.
 
 1. Run the installer with administrator access, then open Sona.
 2. Click the menu bar icon and choose your default output with the device button beside **声音** (Sound).
-3. Play audio. Apps appear under **应用** (Apps), with their own volume and output controls.
+3. Play audio. Apps appear under **应用** (Apps). Select output devices to show their volume sliders; clearing every device silences that app.
 
 Right-click the menu bar icon for login launch, automatic device switching and Quit. On normal exit, Sona attempts to restore the physical output.
 
