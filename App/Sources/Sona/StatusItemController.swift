@@ -14,6 +14,7 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
     private let iconAnimator = IconAnimator()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel = SoundPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private let glass = NSGlassEffectView()
     private let contentController: NSViewController
     private let settingsMenu = NSMenu()
     private var subscriptions: Set<AnyCancellable> = []
@@ -27,9 +28,7 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
         contentController = content
         super.init()
 
-        let glass = NSGlassEffectView()
         glass.style = .clear
-        glass.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.35)
         glass.cornerRadius = 26
         glass.contentView = content.view
         content.view.autoresizingMask = [.width, .height]
@@ -40,7 +39,8 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
         panel.contentViewController = container
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        // Keep the glass's optical edge without a second window-shadow contour.
+        panel.hasShadow = false
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
         // A status-item click need not activate this accessory app. Let the panel
@@ -57,6 +57,10 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.toolTip = "Sona"
             button.setAccessibilityLabel("Sona")
+            button.publisher(for: \.effectiveAppearance, options: [.initial, .new])
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in self?.updatePanelAppearance() }
+                .store(in: &subscriptions)
         }
 
         settingsMenu.delegate = self
@@ -92,6 +96,20 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
         statusItem.button?.image = MenuBarIcon.image(for: state)
     }
 
+    private func updatePanelAppearance() {
+        // The menu bar can use light symbols over a dark wallpaper even when
+        // the app uses Aqua. Match its appearance, rather than the app's theme.
+        guard let name = statusItem.button?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]),
+              let appearance = NSAppearance(named: name) else { return }
+        // The material and its content must resolve colors in the same appearance.
+        glass.appearance = appearance
+        // withAlphaComponent resolves the system color immediately. Refresh it
+        // here so a tint created in Aqua cannot stay white over dark content.
+        appearance.performAsCurrentDrawingAppearance {
+            glass.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.35)
+        }
+    }
+
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         let event = NSApp.currentEvent
         if event?.type == .rightMouseUp ||
@@ -108,6 +126,7 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
             let openingTransition = transitionID
             panel.ignoresMouseEvents = false
             panel.reducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            updatePanelAppearance()
             updatePanelFrame()
             if !panel.isVisible { panel.revealProgress = 0 }
             panel.makeKeyAndOrderFront(nil)
