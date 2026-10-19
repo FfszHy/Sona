@@ -82,7 +82,10 @@ struct MenuContentView: View {
         .defaultScrollAnchor(.top)
         .frame(height: contentHeight.map { min($0, availableHeight) })
         .frame(width: UI.width)
-        .frame(maxHeight: availableHeight)
+        // The host and measured content can update on adjacent frames. Accept
+        // the current host height and pin overflow to the top in both directions,
+        // rather than briefly centering the entire panel during a resize.
+        .frame(minHeight: 0, maxHeight: availableHeight, alignment: .top)
         .controlSize(.small)
         .onChange(of: contentLayout) { _, _ in onContentLayoutChange?() }
     }
