@@ -6,7 +6,7 @@
 
 [English](README.md) · [构建与安装](docs/BUILDING.md) · [更新记录](CHANGELOG.md)
 
-<img src="pic/sona-menu-bar.png" alt="Sona 在 macOS 上的实际运行界面，展示输出音量与网易云音乐的独立音量控制。" width="720" />
+<img src="pic/sona-menu-bar.png" alt="Sona 在 macOS 上的实际运行界面，顶部为声音音量控制，下方为 Safari 浏览器与网易云音乐的独立音量控制。" width="720" />
 
 实际应用截图，由项目作者提供。
 

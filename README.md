@@ -6,7 +6,7 @@ Control each app's volume and audio outputs from the macOS menu bar.
 
 [简体中文](README.zh-CN.md) · [Build & install](docs/BUILDING.md) · [Changelog](CHANGELOG.md)
 
-<img src="pic/sona-menu-bar.png" alt="Sona running on macOS, with output volume and independent volume controls for NetEase Cloud Music." width="720" />
+<img src="pic/sona-menu-bar.png" alt="Sona running on macOS, with a top-level sound volume control and independent volume controls for Safari and NetEase Cloud Music." width="720" />
 
 Actual application screenshot, provided by the project author.
 
