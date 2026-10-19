@@ -144,8 +144,6 @@ release: check-driver-boundary service app
 clean:
 	rm -rf $(DRIVER_DIR)/build $(SERVICE_DIR)/build $(APP_DIR)/build $(APP_DIR)/.build $(ROOT)/build
 	rm -rf $(ROOT)/Tools/build $(ROOT)/Tools/__pycache__ $(ROOT)/Tools/Tests/__pycache__
-	rm -rf $(ROOT)/website/dist $(ROOT)/website/tsconfig.tsbuildinfo \
-		$(ROOT)/website/node_modules/.vite $(ROOT)/website/node_modules/.vite-temp
 
 # Driver clock slaving against a fake anchor.
 .PHONY: test-clock

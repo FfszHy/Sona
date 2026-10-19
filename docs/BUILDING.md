@@ -76,23 +76,13 @@ If you used `make install-app`, also remove `/Applications/Sona.app`. Source uni
 
 ## Build an installer
 
-Building an installer also requires Node.js to update the website download metadata.
-
 ```sh
 make release
 ```
 
-This builds the native components, writes `build/release/Sona-<version>.pkg` and `.sha256`, copies them to `website/public/downloads/`, and updates `website/src/release.ts` and the `/download` redirect. Version values must agree across `App/Info.plist`, `Driver/Info.plist` and `Shared/SonaProtocol.h`.
+This builds the native components and writes `build/release/Sona-<version>.pkg` and `.sha256`. Version values must agree across `App/Info.plist`, `Driver/Info.plist` and `Shared/SonaProtocol.h`. Upload the package and checksum to GitHub Releases after validation.
 
-For GitHub Release assets, set the download base while packaging:
-
-```sh
-SONA_SOURCE_URL=https://github.com/FfszHy/Sona \
-SONA_DOWNLOAD_BASE=https://github.com/FfszHy/Sona/releases/download/v0.6.1 \
-make release
-```
-
-Without credentials the binaries are ad-hoc signed and the installer is unsigned. For Developer ID signing and notarization, configure `SONA_APP_IDENTITY`, `SONA_INSTALLER_IDENTITY` and `SONA_NOTARY_PROFILE` as documented in [the packaging script](../Installer/build-installer.sh). `SONA_SOURCE_URL` sets the source link; `SONA_DOWNLOAD_BASE` can point downloads to GitHub Release assets. Follow the [release checklist](RELEASE-CHECKLIST.md), including installation, upgrade and uninstall verification.
+Without credentials the binaries are ad-hoc signed and the installer is unsigned. For Developer ID signing and notarization, configure `SONA_APP_IDENTITY`, `SONA_INSTALLER_IDENTITY` and `SONA_NOTARY_PROFILE` as documented in [the packaging script](../Installer/build-installer.sh). Follow the [release checklist](RELEASE-CHECKLIST.md), including installation, upgrade and uninstall verification.
 
 ## Tests and diagnostics
 
@@ -112,4 +102,4 @@ Check diagnostic output for app names, device identifiers and other personal inf
 make clean
 ```
 
-Removes native build outputs, release staging, test binaries, Python bytecode and website build caches. Source, design files, the published website installer, installed Node dependencies and local configuration remain in place.
+Removes native build outputs, release staging, test binaries and Python bytecode. Source, application icon design files and local configuration remain in place.

@@ -22,9 +22,8 @@
 
 1. 将 `App/Info.plist`、`Driver/Info.plist` 的版本设为 0.6.1、build 10，更新 `Shared/SonaProtocol.h` 的 `kSonaDriverVersion`，补 `CHANGELOG.md`。
 2. `make test-all`，涉及 IPC 时再 `make test-e2e`。
-3. 使用 `SONA_SOURCE_URL=https://github.com/FfszHy/Sona` 和 `SONA_DOWNLOAD_BASE=https://github.com/FfszHy/Sona/releases/download/v0.6.1` 执行 `make release`：生成安装包与 `.sha256`，同步网站下载资源、元数据和 `/download` 跳转。检查包内版本、安装脚本、二进制架构和签名状态。
+3. 执行 `make release`，在 `build/release/` 生成安装包与 `.sha256`。检查包内版本、安装脚本、二进制架构和签名状态。
 4. 在干净的机器或用户上实机验证：双击安装包走「仍要打开」流程；安装后菜单栏出现 Sona，选择默认输出、播放音频，检查逐应用音量和输出选择；验证旧版升级、`sudo installer -pkg … -target /` 和卸载恢复物理输出。该项需单独记录实机结果，构建与静态检查不能替代。
 5. 创建 `v0.6.1` 标签和 GitHub 预发布，上传安装包及校验文件；说明预览状态、Developer ID 签名与公证状态、已验证范围和未完成的设备验收。下载远端资产，与本地产物逐字节或 SHA-256 对比。
-6. 如需部署官网，先运行 `cd website && npm run build`，再部署；用 `curl -I <站点>/download` 确认跳转到新版本安装包。官网构建成功不代表已经部署。
 
 Developer ID 签名、公证、完整安装、升级与卸载验收仍需分别记录结果；发布预览包不代表这些项目已完成。

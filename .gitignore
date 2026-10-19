@@ -22,6 +22,3 @@ __pycache__/
 *.p12
 *.key
 *.log
-
-# Node
-node_modules

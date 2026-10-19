@@ -19,14 +19,14 @@
 | --- | --- |
 | `make test-all` | 通过：引擎、重采样、App 音量写入、传输、时钟、边界工具及最终驱动导入检查 |
 | App release 构建 | 通过；生成调试符号受沙盒限制后在允许的环境重跑完成 |
-| 驱动、音频服务与官网构建 | 通过 |
+| 驱动与音频服务构建 | 通过 |
 | README 实机截图 | 项目作者提供的当前运行界面，原图未修饰；不替代音频链路或设备兼容性测试 |
 
 本轮未安装驱动、重启 `coreaudiod` 或追加安装、升级、卸载与硬件性能验收。
 
 ### 0.6.1 Preview 安装包检查
 
-- App、Driver 和安装包版本为 0.6.1，build 10；`make release`、`make test-all` 和官网构建通过。
+- App、Driver 和安装包版本为 0.6.1，build 10；`make release` 和 `make test-all` 通过。
 - 解包后 10 个实际 payload 文件与发布暂存源文件 SHA-256 一致；安装脚本与说明页也与当前源码一致。
 - App 为 arm64；Driver 与 Service 包含 arm64、x86_64。最终驱动 HAL 导入边界检查通过，三个二进制严格签名校验通过。
 - 安装 BOM 记录 root:wheel 所有权；可执行文件和卸载脚本为 755，plist、图标及签名资源为 644。
