@@ -24,6 +24,9 @@ struct SoundSlider: View {
         .labelsHidden()
         .controlSize(.small)
         .tint(.primary)
+        // Structural animations may move this row, but the volume itself must
+        // always follow mouse/keyboard input and hardware updates immediately.
+        .transaction { $0.animation = nil }
         // Use the public visibility API instead of overriding NSSliderCell drawing.
         .sliderThumbVisibility(isEnabled && (isHovered || isEditing || isFocused) ? .visible : .hidden)
         .focused($isFocused)

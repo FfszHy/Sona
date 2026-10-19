@@ -75,7 +75,9 @@ final class DriverConnection {
         }
         return DriverStatus(version: d["version"] as? String ?? "?", sampleRate: d["sampleRate"] as? Double ?? 0,
                             ioRunning: d["ioRunning"] as? Bool ?? false, defaultTarget: d["defaultTarget"] as? String ?? "",
-                            targets: targets, serviceConnected: d["serviceConnected"] as? Bool ?? true)
+                            targets: targets, serviceConnected: d["serviceConnected"] as? Bool ?? true,
+                            supportsAppTargetVolumes: d["supportsAppTargetVolumes"] as? Bool ?? false,
+                            serviceSessionID: d["serviceSessionID"] as? String)
     }
 
     private let outputQueue = DispatchQueue(label: "com.sona.app.output-controls", qos: .userInitiated)
@@ -96,14 +98,20 @@ final class DriverConnection {
     }
 
     /// Pushes the full configuration. The driver persists it in HAL plug-in storage.
-    @discardableResult
-    func pushConfig(defaultTarget: String, apps: [String: AppAudioSetting]) -> OSStatus {
+    @MainActor
+    func pushConfig(defaultTarget: String, apps: [String: AppAudioSetting],
+                    supportsAppTargetVolumes: Bool, connectedTargetUIDs: Set<String>) async -> OSStatus {
         guard let id = deviceID else { return OSStatus(kAudioHardwareNotRunningError) }
         var appsDict: [String: Any] = [:]
         for (key, s) in apps where !s.isDefault {
-            appsDict[key] = ["volume": s.volume, "mute": s.mute, "targets": s.targets]
+            appsDict[key] = s.driverPropertyList(supportsAppTargetVolumes: supportsAppTargetVolumes,
+                                               connectedTargetUIDs: connectedTargetUIDs, defaultTarget: defaultTarget)
         }
         let config: [String: Any] = ["defaultTarget": defaultTarget, "apps": appsDict]
-        return AudioSystem.setPropertyList(id, SonaProtocol.propertyConfig, config as CFDictionary)
+        return await withCheckedContinuation { continuation in
+            outputQueue.async {
+                continuation.resume(returning: AudioSystem.setPropertyList(id, SonaProtocol.propertyConfig, config as CFDictionary))
+            }
+        }
     }
 }

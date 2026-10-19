@@ -76,9 +76,9 @@ static OSStatus mockDeviceStop(AudioObjectID, AudioDeviceIOProcID) { ++deviceSto
 static int clientPushes = 0, statusPushes = 0, masterPushes = 0;
 static float pushedMasterVolume = -1; static bool pushedMasterMute = false;
 
-static CFDictionaryRef configFor(const std::string& entries) {
+static CFDictionaryRef configFor(const std::string& entries, const std::string& defaultUID = "device-a") {
     std::string xml = "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict>"
-        "<key>defaultTarget</key><string>device-a</string><key>apps</key><dict>" + entries + "</dict></dict></plist>";
+        "<key>defaultTarget</key><string>" + defaultUID + "</string><key>apps</key><dict>" + entries + "</dict></dict></plist>";
     auto data = CFDataCreate(nullptr, (const UInt8*)xml.data(), xml.size());
     auto config = (CFDictionaryRef)CFPropertyListCreateWithData(nullptr, data, kCFPropertyListImmutable, nullptr, nullptr);
     CFRelease(data);
@@ -126,19 +126,34 @@ int main() {
     assert(SonaRoutesChanged(before, after));
     after.clear();
     assert(SonaRoutesChanged(before, after));
+    before.clear(); after.clear();
+    after["test.app"].followDefault = false;
+    assert(SonaRoutesChanged(before, after)); // explicit zero routes differs from following default
+    before = after; after["test.app"].targetVolumes["device-a"] = 0.25f;
+    assert(!SonaRoutesChanged(before, after)); // remembered route gain does not alter route demand
+    before.clear(); before["test.app"].targets = {"device-b"};
     gAppSettings = before;
     auto routedConfig = configFor("<key>test.app</key><dict><key>targets</key><array><string>device-b</string></array></dict>");
     CFRelease(gConfig); gConfig = (CFDictionaryRef)CFRetain(routedConfig);
-    configClient.routeMask = 8;
+    configClient.routeMask = 8; configClient.followDefault = false;
+    gTargets[3].uid = "device-b";
     auto routedQuiet = configFor("<key>test.app</key><dict><key>volume</key><real>0.3</real><key>targets</key><array><string>device-b</string></array></dict>");
     SonaApplyConfig(routedQuiet, false);
     assert(configClient.gain == 0.3f && configClient.routeMask == 8);
     assert(hardwareReads == readsBefore);
+    auto routeGainOnly = configFor("<key>test.app</key><dict><key>volume</key><real>0.3</real>"
+        "<key>targets</key><array><string>device-b</string></array><key>targetVolumes</key>"
+        "<dict><key>device-b</key><real>0.2</real></dict></dict>");
+    SonaApplyConfig(routeGainOnly, false);
+    assert(configClient.targetGains[3] == 0.2f && configClient.routeMask == 8);
+    assert(hardwareReads == readsBefore); // dragging per-route gain never reconciles HAL devices
     gHALClientReady = false; gTargetsReconciled = false;
     gAppSettings.clear(); gDefaultTargetUID.clear();
     CFRelease(gConfig); gConfig = nullptr;
-    for (auto config : {initialConfig, quietConfig, mutedConfig, routedConfig, routedQuiet}) CFRelease(config);
-    configClient.used = false; configClient.routeMask = 0; configClient.gain = 1;
+    for (auto config : {initialConfig, quietConfig, mutedConfig, routedConfig, routedQuiet, routeGainOnly}) CFRelease(config);
+    configClient.used = false; configClient.routeMask = 0; configClient.gain = 1; configClient.followDefault = true;
+    for (auto& gain : configClient.targetGains) gain = -1;
+    gTargets[3].uid.clear();
 
     // ---- Hardware controls.
     auto vol = kAudioDevicePropertyVolumeScalar;
@@ -274,6 +289,7 @@ int main() {
     drain();
     assert(gOutputControls[2].volume == 0.3f);
     auto status = SonaEngineCopyStatus();
+    assert(CFDictionaryGetValue(status, CFSTR("supportsAppTargetVolumes")) == kCFBooleanTrue);
     auto targets = (CFArrayRef)CFDictionaryGetValue(status, CFSTR("targets"));
     auto target = (CFDictionaryRef)CFArrayGetValueAtIndex(targets, 2);
     float reported = 0;
@@ -285,7 +301,9 @@ int main() {
     char stateFile[] = "/tmp/sona-engine-test-XXXXXX";
     close(mkstemp(stateFile));
     gStateFile = stateFile;
-    auto persistedConfig = configFor("<key>persist.app</key><dict><key>volume</key><real>0.75</real></dict>");
+    auto persistedConfig = configFor("<key>persist.app</key><dict><key>volume</key><real>0.75</real>"
+        "<key>followDefault</key><false/><key>targets</key><array><string>device-b</string></array>"
+        "<key>targetVolumes</key><dict><key>device-a</key><real>0.2</real><key>device-b</key><real>0.6</real></dict></dict>");
     { std::lock_guard<std::recursive_mutex> lock(gStateMutex); if (gConfig) CFRelease(gConfig); gConfig = (CFDictionaryRef)CFRetain(persistedConfig); }
     SonaSaveState();
     gOutputLevels.clear();
@@ -295,6 +313,12 @@ int main() {
     assert(gOutputLevels["device-c"].volume == 0.3f && !gOutputLevels["device-c"].mute);
     auto loadedConfig = (CFDictionaryRef)CFDictionaryGetValue(loaded, CFSTR("config"));
     assert(loadedConfig && CFEqual(loadedConfig, persistedConfig));
+    SonaApplyConfig(loadedConfig, false);
+    const auto& restoredApp = gAppSettings.at("persist.app");
+    assert(!restoredApp.followsDefault() && restoredApp.targetVolumes.at("device-b") == 0.6f);
+    auto copiedConfig = SonaEngineCopyConfig();
+    assert(copiedConfig && CFEqual(copiedConfig, persistedConfig));
+    CFRelease(copiedConfig);
     CFRelease(loaded); CFRelease(persistedConfig);
     unlink(stateFile);
     gStateFile.clear();
@@ -307,14 +331,14 @@ int main() {
         void* region = nullptr;
         assert(posix_memalign(&region, 4096, kSonaTransportRegionSize) == 0);
         SonaTransportInitRegion(region, 1);
-        for (auto& c : gClients) { c.used = false; c.instance = 0; c.lastSignalHostTime = 0; c.played = false; }
+        for (auto& c : gClients) { c.used = false; c.instance = 0; c.lastSignalHostTime = 0; c.played = false; c.followDefault = true; }
         gDefaultMask = 1;
         gTargets[0].active = true; gTargets[1].active = true; gTargets[2].active = false;
         gTargets[0].ring.flush(); gTargets[1].ring.flush();
         gHardwareVolume = true; gHardwareMute = true;   // master gain 1
         gOutputControls[1].gain = 0.5f;
         auto& a = gClients[0]; a.used = true; a.instance = 1; a.gain = 0.5f; a.routeMask = 0;        // default sink, 128-frame buffers
-        auto& b = gClients[1]; b.used = true; b.instance = 1; b.gain = 1.0f; b.routeMask = 2;        // sink 1 only, 512-frame buffers
+        auto& b = gClients[1]; b.used = true; b.instance = 1; b.gain = 1.0f; b.routeMask = 2; b.followDefault = false; // sink 1 only, 512-frame buffers
         auto& idle = gClients[2]; idle.used = true; idle.instance = 1;                               // never writes
         gFormatGeneration = 7; gSampleRate = 48000;
         SonaMixResetAnchor(); SonaMixReset(-1); gMixFormatGeneration = 7;
@@ -422,6 +446,96 @@ int main() {
         free(region);
     }
 
+    // ---- Route gains: two apps x two outputs, explicit silence, legacy schema and a hot
+    // default change. Exercise the real parser and transport/mixer with distinguishable PCM.
+    {
+        void* region = nullptr;
+        assert(posix_memalign(&region, 4096, kSonaTransportRegionSize) == 0);
+        gTargets[0].uid = "device-a"; gTargets[1].uid = "device-b";
+        gTargets[0].active = true; gTargets[1].active = true;
+        gFormatGeneration = 20; gSampleRate = 48000;
+        const double tpf = gHostTicksPerSecond / 48000;
+        const uint64_t t0 = mach_absolute_time();
+        uint32_t generation = 100;
+        auto mix = [&](const std::string& entries, float aL, float aR, float bL, float bR,
+                       const std::string& defaultUID = "device-a", float masterScalar = 1, float otherGain = 1) {
+            SonaTransportInitRegion(region, generation++);
+            SonaMixResetAnchor(); SonaMixReset(-1); gMixResetRequested = 0;
+            for (auto& c : gClients) c.used = false;
+            for (UInt32 slot = 0; slot < 2; ++slot) {
+                auto& client = gClients[slot];
+                client.used = true; client.instance = 1;
+                client.pid = 600 + slot; client.key = slot == 0 ? "app.a" : "app.b";
+                gTargets[slot].ring.flush();
+                gOutputControls[slot].gain = otherGain;
+            }
+            auto config = configFor(entries, defaultUID);
+            SonaApplyConfig(config, false); // HAL disabled: leave mock sink setup in place.
+            CFRelease(config);
+            for (UInt32 slot = 0; slot < 2; ++slot) SonaApplySettingsToClient(gClients[slot]);
+            gDefaultMask = defaultUID == "device-a" ? 1 : 2;
+            gHardwareVolume = false; gHardwareMute = false;
+            gMasterVolume = masterScalar; gMasterMute = false;
+            const float samples[][2] = {{0.8f, 0.4f}, {0.2f, 0.6f}};
+            for (UInt32 slot = 0; slot < 2; ++slot) {
+                float pcm[128 * 2];
+                for (UInt32 f = 0; f < 128; ++f) { pcm[f * 2] = samples[slot][0]; pcm[f * 2 + 1] = samples[slot][1]; }
+                SonaTransportBlock block = {};
+                block.frames = 128; block.instance = 1; block.formatGeneration = 20;
+                block.sampleTime = 1000; block.hostTime = t0 + uint64_t(1000 * tpf);
+                block.flags = kSonaBlockFlag_TimestampValid;
+                assert(SonaTransportRingWrite(SonaTransportRing(region, slot), pcm, block));
+            }
+            SonaMixOnce(region, t0 + uint64_t(1328 * tpf));
+            const float expected[][2] = {{aL, aR}, {bL, bR}};
+            for (UInt32 slot = 0; slot < 2; ++slot) {
+                assert(gTargets[slot].ring.available() >= 128);
+                for (UInt32 f = 0; f < 128; ++f) {
+                    float l, r; gTargets[slot].ring.sample(f, l, r);
+                    assert(std::fabs(l - expected[slot][0]) < 1e-6f);
+                    assert(std::fabs(r - expected[slot][1]) < 1e-6f);
+                }
+            }
+        };
+        const std::string both = "<key>targets</key><array><string>device-a</string><string>device-b</string></array>"
+            "<key>followDefault</key><false/>";
+        const std::string b = "<key>app.b</key><dict>" + both + "<key>targetVolumes</key><dict>"
+            "<key>device-a</key><real>0.5</real><key>device-b</key><real>0.1</real></dict></dict>";
+        const std::string a = "<key>app.a</key><dict>" + both + "<key>volume</key><real>0.9</real>"
+            "<key>targetVolumes</key><dict><key>device-a</key><real>0.25</real><key>device-b</key><real>0.75</real></dict></dict>";
+        mix(a + b, 0.3f, 0.4f, 0.62f, 0.36f);
+        const std::string louderA = "<key>app.a</key><dict>" + both + "<key>targetVolumes</key><dict>"
+            "<key>device-a</key><real>0.75</real><key>device-b</key><real>0.75</real></dict></dict>";
+        mix(louderA + b, 0.7f, 0.6f, 0.62f, 0.36f); // changing app.a/device-a leaves device-b untouched
+        mix(a + b, 0.0375f, 0.05f, 0.31f, 0.18f, "device-a", 0.5f, 0.5f); // (.5 cubed) / .5 output gains
+        const std::string silentB = "<key>app.b</key><dict><key>followDefault</key><false/><key>targets</key><array/></dict>";
+        mix("<key>app.a</key><dict><key>followDefault</key><false/><key>targets</key><array/></dict>" + silentB,
+            0, 0, 0, 0); // deselecting the final route stays silent
+        mix("<key>app.a</key><dict><key>targets</key><array><string>unavailable-device</string></array></dict>" + silentB,
+            0, 0, 0, 0); // legacy explicit unavailable route must never leak into the default
+        const std::string follow = "<key>app.a</key><dict><key>followDefault</key><true/>"
+            "<key>targetVolumes</key><dict><key>device-a</key><real>0.2</real><key>device-b</key><real>0.7</real></dict></dict>";
+        mix(follow + silentB, 0.16f, 0.08f, 0, 0);
+        mix(follow + silentB, 0, 0, 0.56f, 0.28f, "device-b"); // uses new default UID's saved gain
+        mix("<key>app.a</key><dict><key>volume</key><real>0.4</real></dict>" + silentB, 0.32f, 0.16f, 0, 0);
+        mix("<key>app.a</key><dict><key>volume</key><real>0.3</real><key>targets</key><array><string>device-b</string></array></dict>" + silentB,
+            0, 0, 0.24f, 0.12f); // legacy explicit routing and unified gain still work
+        mix("<key>app.a</key><dict>" + both + "<key>mute</key><true/>"
+            "<key>targetVolumes</key><dict><key>device-a</key><real>0.8</real><key>device-b</key><real>0.9</real></dict></dict>" + silentB,
+            0, 0, 0, 0); // conventional app mute covers every per-route override
+        mix("<key>app.a</key><dict>" + both + "<key>volume</key><real>0.4</real>"
+            "<key>targetVolumes</key><dict><key>device-a</key><string>invalid</string><key>device-b</key><real>0.5</real></dict></dict>" + silentB,
+            0.32f, 0.16f, 0.4f, 0.2f); // invalid override falls back to the legacy gain
+        for (auto& c : gClients) { c.used = false; c.followDefault = true; }
+        for (UInt32 slot = 0; slot < 2; ++slot) {
+            gTargets[slot].active = false; gTargets[slot].uid.clear(); gTargets[slot].ring.flush();
+            gOutputControls[slot].gain = 1;
+        }
+        gHardwareVolume = true; gHardwareMute = true;
+        gAppSettings.clear();
+        free(region);
+    }
+
     // ---- Session. The control queue never moves a ring's read indices (the mixer thread is the
     // only consumer; a flush from here raced with a peek/consume pair and could wedge the ring), a
     // block whose instance is not announced yet waits, and a region counts as retired only once
@@ -441,6 +555,9 @@ int main() {
         };
         gMixResetRequested = 0;
         SonaEngineAttachRegion(region, 2);
+        auto firstSessionStatus = SonaEngineCopyStatus();
+        auto firstSessionID = (CFStringRef)CFDictionaryGetValue(firstSessionStatus, CFSTR("serviceSessionID"));
+        assert(firstSessionID && CFStringGetLength(firstSessionID) == 36);
         assert(gRegion.load() == region && gMixResetRequested.load() == 1);
         assert(gTargets[0].clockCell.load() == SonaTransportClockCell(region));
         auto* ring = SonaTransportRing(region, 5);
@@ -478,13 +595,21 @@ int main() {
         assert(SonaEngineRegionRetired(ticket));
         // Same for a sink IOProc inside publishAnchor.
         SonaEngineAttachRegion(region, 3);
+        auto secondSessionStatus = SonaEngineCopyStatus();
+        auto secondSessionID = CFDictionaryGetValue(secondSessionStatus, CFSTR("serviceSessionID"));
+        assert(secondSessionID && !CFEqual(firstSessionID, secondSessionID));
+        CFRelease(secondSessionStatus);
         gTargets[2].clockPass.store(7);
         ticket = SonaEngineDetachRegion();
         assert(!SonaEngineRegionRetired(ticket));
         gTargets[2].clockPass.store(8);
         assert(SonaEngineRegionRetired(ticket));
         // A detach recorded while the mixer is between passes needs no confirmation at all.
-        SonaEngineAttachRegion(region, 4);
+        SonaEngineAttachRegion(region, 2); // even a reused generation after process restart gets a new identity
+        auto restartedStatus = SonaEngineCopyStatus();
+        auto restartedID = CFDictionaryGetValue(restartedStatus, CFSTR("serviceSessionID"));
+        assert(restartedID && !CFEqual(firstSessionID, restartedID));
+        CFRelease(restartedStatus); CFRelease(firstSessionStatus);
         ticket = SonaEngineDetachRegion();
         assert(SonaEngineRegionRetired(ticket));
         gMixerPass.store(4);
@@ -556,5 +681,5 @@ int main() {
         for (UInt32 i = 0; i < 3; ++i) { gTargets[i].uid.clear(); gTargets[i].procID = nullptr; }
     });
 
-    puts("Engine: config, hardware controls, output levels, persistence, mixer, session, activity and lifecycle tests passed");
+    puts("Engine: config, hardware controls, output levels, per-route app gains, persistence, mixer, session, activity and lifecycle tests passed");
 }

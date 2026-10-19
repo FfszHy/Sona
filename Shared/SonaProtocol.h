@@ -23,7 +23,12 @@ enum {
     // Settable. CFDictionary:
     //   defaultTarget : CFString  (device UID that receives audio from apps without an explicit route)
     //   apps          : CFDictionary keyed by app key ("bundle.id" or "pid:1234") ->
-    //                     { volume: CFNumber 0..4 (linear gain), mute: CFBoolean, targets: CFArray<CFString UID> }
+    //                     { volume: CFNumber 0..4 (legacy linear gain), mute: CFBoolean,
+    //                       targets: CFArray<CFString UID>, followDefault?: CFBoolean,
+    //                       targetVolumes?: CFDictionary<UID, CFNumber 0..4 linear gain> }
+    // Missing followDefault preserves legacy semantics: empty targets follows default.
+    // Explicit followDefault=false with empty/unavailable targets is silent, without fallback.
+    // Each selected route uses targetVolumes[UID] or volume, then device output gain.
     // Reading it back returns the last dictionary the driver accepted (or persisted).
     kSonaProperty_Config    = 'sncf',
 
@@ -35,6 +40,8 @@ enum {
 
     // Read-only. CFDictionary:
     //   version : CFString, sampleRate : CFNumber, ioRunning : CFBoolean, defaultTarget : CFString,
+    //   supportsAppTargetVolumes : CFBoolean (per-route app gain and explicit silence supported),
+    //   serviceSessionID : CFString (new UUID each handshake, including after service restart),
     //   targets : CFArray of { slot : CFNumber, uid : CFString, active : CFBoolean,
     //                          volume : CFNumber 0..1, mute : CFBoolean,
     //                          underruns : CFNumber, deviceRate : CFNumber,
@@ -53,6 +60,8 @@ enum {
 #define kSonaAppKey_Volume            "volume"
 #define kSonaAppKey_Mute              "mute"
 #define kSonaAppKey_Targets           "targets"
+#define kSonaAppKey_FollowDefault     "followDefault"
+#define kSonaAppKey_TargetVolumes     "targetVolumes"
 
 #define kSonaClientKey_ClientID       "clientID"
 #define kSonaClientKey_PID            "pid"
@@ -65,6 +74,8 @@ enum {
 #define kSonaStatusKey_SampleRate     "sampleRate"
 #define kSonaStatusKey_IORunning      "ioRunning"
 #define kSonaStatusKey_DefaultTarget  "defaultTarget"
+#define kSonaStatusKey_SupportsAppTargetVolumes "supportsAppTargetVolumes"
+#define kSonaStatusKey_ServiceSessionID "serviceSessionID"
 #define kSonaStatusKey_Targets        "targets"
 #define kSonaTargetKey_Slot           "slot"
 #define kSonaTargetKey_UID            "uid"

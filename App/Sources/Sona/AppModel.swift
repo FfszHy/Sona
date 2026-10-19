@@ -57,6 +57,7 @@ final class AppModel: ObservableObject {
     private var defaultDeviceListener: AudioObjectPropertyListenerBlock?
     private var reconnectTimer: Timer?
     private var pushTask: Task<Void, Never>?
+    private var configPushRequested = false
     private var lastClients: [DriverClient] = []
     private var lastPushedApps: [String: AppAudioSetting] = [:]
     private var lastAppsSummary = ""
@@ -67,6 +68,7 @@ final class AppModel: ObservableObject {
 
     /// True while any visible app is playing; drives the menu bar icon animation.
     var anyPlaying: Bool { apps.contains(where: \.running) }
+    var canControlAppOutputs: Bool { status?.supportsAppTargetVolumes == true }
 
     private enum Keys {
         static let appSettings = "appSettings"
@@ -202,11 +204,16 @@ final class AppModel: ObservableObject {
     /// Keep the default first; show the connected routes of visible apps even when muted.
     var routedOutputDevices: [OutputDevice] {
         var uids: Set<String> = [defaultTargetUID]
-        for app in apps { uids.formUnion(setting(for: app.key).targets) }
-        return outputDevices.filter { uids.contains($0.uid) }.sorted {
+        for app in apps { uids.formUnion(setting(for: app.key).selectedTargetUIDs(defaultTarget: defaultTargetUID)) }
+        return orderedOutputDevices(matching: uids)
+    }
+
+    private func orderedOutputDevices(matching uids: Set<String>) -> [OutputDevice] {
+        outputDevices.filter { uids.contains($0.uid) }.sorted {
             if $0.uid == defaultTargetUID { return true }
             if $1.uid == defaultTargetUID { return false }
-            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            let comparison = $0.name.localizedStandardCompare($1.name)
+            return comparison == .orderedSame ? $0.uid < $1.uid : comparison == .orderedAscending
         }
     }
 
@@ -295,7 +302,14 @@ final class AppModel: ObservableObject {
                 self.statusRefreshRequested = false
                 let device = self.driver.deviceID
                 let updated = await self.driver.fetchStatusInBackground()
-                if device == self.driver.deviceID, self.status != updated { self.status = updated }
+                if device == self.driver.deviceID, self.status != updated {
+                    let replayConfig = updated?.shouldReplayConfig(after: self.status) == true
+                    self.status = updated
+                    // A first, capability-unknown push may have used the safe legacy
+                    // serialization; an offline service can also drop acknowledged
+                    // writes. Replay current preferences on capability/session changes.
+                    if replayConfig { self.pushConfig(immediately: true) }
+                }
             }
             self.statusRefreshTask = nil
         }
@@ -376,6 +390,9 @@ final class AppModel: ObservableObject {
                 defaultTargetUID = first.uid
             }
         }
+        // Legacy services fall back to default for disconnected explicit routes.
+        // Re-evaluate their compatibility mute when the set of connected outputs changes.
+        if !canControlAppOutputs { pushConfig() }
     }
 
     private func refreshActive() {
@@ -421,20 +438,31 @@ final class AppModel: ObservableObject {
         appSettings[key] ?? AppAudioSetting()
     }
 
-    func setAppVolume(_ volume: Double, for key: String) {
+    func appOutputDevices(for key: String) -> [OutputDevice] {
+        orderedOutputDevices(matching: Set(setting(for: key).selectedTargetUIDs(defaultTarget: defaultTargetUID)))
+    }
+
+    func appVolume(_ uid: String, for key: String) -> Double {
+        setting(for: key).volume(for: uid)
+    }
+
+    func setAppVolume(_ volume: Double, uid: String, for key: String) {
         guard volume.isFinite else { return }
-        let volume = min(max(volume, 0), 1)
+        let defaultUID = defaultTargetUID
         update(key) {
-            $0.volume = volume
-            $0.mute = volume == 0
+            $0.setVolume(volume, for: uid, defaultTarget: defaultUID)
         }
+    }
+
+    func setAppEditing(_ editing: Bool, for _: String) {
+        if !editing { pushConfig(immediately: true) }
     }
 
     func update(_ key: String, _ change: (inout AppAudioSetting) -> Void) {
         var s = setting(for: key)
         change(&s)
         if s.isDefault { appSettings.removeValue(forKey: key) } else { appSettings[key] = s }
-        NSLog("Sona: update \(key) -> volume=\(s.volume) mute=\(s.mute) targets=\(s.targets)")
+        NSLog("Sona: update \(key) -> volume=\(s.volume) mute=\(s.mute) followDefault=\(s.followDefault) targets=\(s.targets) targetVolumes=\(s.targetVolumes)")
         persist()
         pushConfig()
     }
@@ -442,17 +470,8 @@ final class AppModel: ObservableObject {
     func toggleTarget(_ uid: String, for key: String) {
         guard outputDevices.contains(where: { $0.uid == uid }) else { return }
         let defaultUID = defaultTargetUID
-        let defaultAvailable = outputDevices.contains { $0.uid == defaultUID }
         update(key) { s in
-            // Enter explicit routing by adding to the currently audible default output.
-            // From this point the selected devices are fixed until "默认输出" is chosen.
-            if s.targets.isEmpty && defaultAvailable && uid != defaultUID {
-                s.targets = [defaultUID, uid]
-            } else if let i = s.targets.firstIndex(of: uid) {
-                s.targets.remove(at: i)
-            } else {
-                s.targets.append(uid)
-            }
+            s.toggleTarget(uid, defaultTarget: defaultUID)
         }
     }
 
@@ -482,20 +501,28 @@ final class AppModel: ObservableObject {
     }
 
     private func pushConfig(immediately: Bool = false) {
-        pushTask?.cancel()
-        let doPush = { [weak self] in
-            guard let self, self.driverConnected else { return }
-            let expanded = self.expandedSettings()
-            let err = self.driver.pushConfig(defaultTarget: self.defaultTargetUID, apps: expanded)
-            if err == noErr { self.lastPushedApps = expanded } else { NSLog("Sona: pushConfig failed: \(err)") }
-        }
-        if immediately {
-            doPush()
-        } else {
-            pushTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                if !Task.isCancelled { doPush() }
+        configPushRequested = true
+        guard pushTask == nil else { return }
+        pushTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var skipDelay = immediately
+            while self.configPushRequested {
+                // Throttle instead of restarting a debounce on every slider event.
+                // A slow HAL write keeps only the latest pending configuration.
+                if !skipDelay { try? await Task.sleep(nanoseconds: 33_000_000) }
+                skipDelay = false
+                self.configPushRequested = false
+                guard self.driverConnected else { break }
+                let expanded = self.expandedSettings()
+                let defaultUID = self.defaultTargetUID
+                let device = self.driver.deviceID
+                let err = await self.driver.pushConfig(defaultTarget: defaultUID, apps: expanded,
+                                                      supportsAppTargetVolumes: self.canControlAppOutputs,
+                                                      connectedTargetUIDs: Set(self.outputDevices.map(\.uid)))
+                if err == noErr, device == self.driver.deviceID { self.lastPushedApps = expanded }
+                else if err != noErr { NSLog("Sona: pushConfig failed: \(err)") }
             }
+            self.pushTask = nil
         }
     }
 

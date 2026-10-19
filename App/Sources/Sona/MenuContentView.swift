@@ -13,34 +13,111 @@ private enum UI {
     static let cardGap: CGFloat = 12
     static let control: CGFloat = 28
     static let appIcon: CGFloat = 24
-    static let maxVisibleRows = 6
 }
 
 struct MenuContentView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var contentHeight: CGFloat?
+    var maxHeight: CGFloat = .infinity
+    var onContentLayoutChange: (() -> Void)? = nil
+
+    /// Volume/status polling must not restart layout animations. Only changes
+    /// that actually add, remove or reorder panel content participate.
+    private struct ContentLayout: Equatable {
+        struct AppLayout: Equatable {
+            let id: String
+            let outputUIDs: [String]
+            let hasSelection: Bool
+        }
+
+        let driverInstalled: Bool
+        let driverConnected: Bool
+        let serviceConnected: Bool?
+        let canControlAppOutputs: Bool
+        let apps: [AppLayout]
+        let outputUIDs: [String]
+        let routedUIDs: [String]
+    }
+
+    private var contentLayout: ContentLayout {
+        ContentLayout(driverInstalled: model.driverInstalled,
+                      driverConnected: model.driverConnected,
+                      serviceConnected: model.status?.serviceConnected,
+                      canControlAppOutputs: model.canControlAppOutputs,
+                      apps: model.apps.map { app in
+                          ContentLayout.AppLayout(
+                            id: app.id,
+                            outputUIDs: model.appOutputDevices(for: app.key).map(\.uid),
+                            hasSelection: !model.setting(for: app.key)
+                                .selectedTargetUIDs(defaultTarget: model.defaultTargetUID).isEmpty)
+                      },
+                      outputUIDs: model.outputDevices.map(\.uid),
+                      routedUIDs: model.routedOutputDevices.map(\.uid))
+    }
+
+    private var contentTransition: AnyTransition {
+        SonaMotion.transition(reduceMotion: reduceMotion)
+    }
 
     var body: some View {
+        // Keep the same content/control tree when the panel becomes scrollable.
+        // Switching between two ViewThatFits branches would lose slider focus
+        // and editing state precisely when another app/device arrives.
+        ScrollView(showsIndicators: false) {
+            panelContent
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.size.height
+                } action: { height in
+                    guard contentHeight != height else { return }
+                    contentHeight = height
+                    onContentLayoutChange?()
+                }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        // Keep an outgoing bottom card visible while the native window shrinks.
+        // The window remains the final boundary for long, scrollable panels.
+        .scrollClipDisabled()
+        .defaultScrollAnchor(.top)
+        .frame(height: contentHeight.map { min($0, availableHeight) })
+        .frame(width: UI.width)
+        .frame(maxHeight: availableHeight)
+        .controlSize(.small)
+        .onChange(of: contentLayout) { _, _ in onContentLayoutChange?() }
+    }
+
+    private var availableHeight: CGFloat {
+        if maxHeight.isFinite { return max(1, maxHeight) }
+        return max(1, (NSScreen.main?.visibleFrame.height ?? 736) - 16)
+    }
+
+    private var panelContent: some View {
         VStack(alignment: .leading, spacing: UI.cardGap) {
             if !model.driverInstalled {
                 soundHeading
                 notice("需要安装 Sona 驱动", systemImage: "exclamationmark.triangle.fill",
                        detail: "驱动装在 /Library/Audio/Plug-Ins/HAL,需要管理员密码。请重新运行 Sona 安装包;从源码构建时在项目目录运行:", code: "sudo make install-driver")
+                    .transition(contentTransition)
             } else if !model.driverConnected {
                 soundHeading
                 notice("驱动已安装,等待设备出现", systemImage: "hourglass",
                        detail: "刚安装的话请稍等几秒;仍不出现就重启 coreaudiod。", code: "sudo killall coreaudiod")
+                    .transition(contentTransition)
             } else {
                 if model.status?.serviceConnected == false {
                     notice("Sona Audio Service 未运行,暂时没有声音", systemImage: "speaker.slash.fill",
                            detail: "驱动已就绪但后台服务离线。launchd 通常会在几秒内拉起;仍无声则重新运行 Sona 安装包,或从源码:", code: "sudo make install-service")
+                        .transition(contentTransition)
                 }
                 masterCard
+                    .transition(contentTransition)
                 appsSection
             }
         }
         .padding(UI.outerPadding)
         .frame(width: UI.width)
-        .controlSize(.small)
+        .animation(SonaMotion.content(reduceMotion: reduceMotion), value: contentLayout)
     }
 
     // MARK: - Sound heading
@@ -55,38 +132,27 @@ struct MenuContentView: View {
         AudioControlCard {
             soundHeading
         } controls: {
-            if model.routedOutputDevices.count > 1 {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(model.routedOutputDevices) { device in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                Label(device.name, systemImage: device.symbolName)
-                                    .font(.caption.weight(.medium)).lineLimit(1)
-                                    .help(device.name)
-                                Spacer(minLength: 4)
-                                if device.uid == model.defaultTargetUID {
-                                    Text("默认").font(.caption2).foregroundStyle(.secondary)
-                                }
-                            }
-                            VolumeRow(
-                                volume: model.outputVolume(device.uid),
-                                muted: model.outputMuted(device.uid),
-                                onVolume: { model.setOutputVolume($0, uid: device.uid) },
-                                controlLabel: device.name,
-                                onEditingChanged: { model.setOutputEditing($0, uid: device.uid) }
-                            )
-                            .disabled(!model.canControlOutput(device.uid))
-                            if !model.canControlOutput(device.uid) {
-                                Text("设备准备中；旧版驱动需更新后才能调节")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(model.routedOutputDevices, id: \.uid) { device in
+                    DeviceVolumeRow(
+                        device: device,
+                        volume: model.outputVolume(device.uid),
+                        muted: model.outputMuted(device.uid),
+                        onVolume: { model.setOutputVolume($0, uid: device.uid) },
+                        controlLabel: device.name,
+                        unavailableReason: model.canControlOutput(device.uid)
+                            ? nil : "设备准备中；旧版驱动需更新后才能调节",
+                        onEditingChanged: { model.setOutputEditing($0, uid: device.uid) }
+                    )
+                    .disabled(!model.canControlOutput(device.uid))
+                    .transition(contentTransition)
                 }
-            } else {
-                VolumeRow(volume: model.masterVolume, muted: model.masterMuted,
-                          onVolume: { model.setMasterVolume($0) }, controlLabel: "输出")
+                if model.routedOutputDevices.isEmpty {
+                    Text("没有可用输出设备").font(.caption2).foregroundStyle(.secondary)
+                        .transition(contentTransition)
+                }
             }
+            .animation(SonaMotion.content(reduceMotion: reduceMotion), value: model.routedOutputDevices.map(\.uid))
         } outputPicker: {
             outputPicker
         }
@@ -94,8 +160,8 @@ struct MenuContentView: View {
 
     private var outputPicker: some View {
         DeviceMenu(devices: model.outputDevices,
-                   selected: [model.defaultTargetUID], allowsMultiple: false,
-                   onToggle: { model.selectDefaultTarget($0) }, onFollowDefault: nil)
+                   selected: model.defaultTargetUID,
+                   onSelect: { model.selectDefaultTarget($0) })
             .accessibilityLabel("切换输出设备")
             .help("切换输出设备：" + model.deviceName(forUID: model.defaultTargetUID))
     }
@@ -112,17 +178,20 @@ struct MenuContentView: View {
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-            } else if model.apps.count <= UI.maxVisibleRows {
-                VStack(spacing: UI.cardGap) {
-                    ForEach(model.apps) { app in AppCard(app: app) }
+                .transition(contentTransition)
+            }
+            if !model.apps.isEmpty && !model.canControlAppOutputs {
+                Card {
+                    Text("更新 Sona 音频服务后可调节各设备音量")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
-            } else {
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: UI.cardGap) {
-                        ForEach(model.apps) { app in AppCard(app: app) }
-                    }
-                }
-                .frame(height: CGFloat(UI.maxVisibleRows) * (AppCard.estimatedHeight + UI.cardGap))
+                .transition(contentTransition)
+            }
+            // Keep one stable ForEach across the empty/nonempty boundary so
+            // existing apps retain their native control and focus identity.
+            ForEach(model.apps) { app in
+                AppCard(app: app)
+                    .transition(contentTransition)
             }
         }
     }
@@ -140,14 +209,19 @@ struct MenuContentView: View {
     }
 }
 
-// MARK: - App card (row 1: icon · name · output picker; row 2: volume)
+// MARK: - App card (icon · name · device buttons; one volume row per selected device)
 
 private struct AppCard: View {
-    static let estimatedHeight: CGFloat = UI.control + 6 + UI.control + UI.cardPaddingV * 2
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let app: AudioApp
 
     private var setting: AppAudioSetting { model.setting(for: app.key) }
+    private var devices: [OutputDevice] { model.appOutputDevices(for: app.key) }
+    private var emptyMessage: String {
+        setting.selectedTargetUIDs(defaultTarget: model.defaultTargetUID).isEmpty
+            ? "未选择输出设备，当前应用不输出声音" : "所选输出设备未连接"
+    }
 
     var body: some View {
         AudioControlCard {
@@ -156,15 +230,36 @@ private struct AppCard: View {
                 Text(app.name).font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.tail)
             }
         } controls: {
-            VolumeRow(volume: setting.volume, muted: setting.mute,
-                      onVolume: { model.setAppVolume($0, for: app.key) }, controlLabel: app.name)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(devices, id: \.uid) { device in
+                    DeviceVolumeRow(
+                        device: device,
+                        volume: model.appVolume(device.uid, for: app.key),
+                        muted: setting.mute,
+                        onVolume: { model.setAppVolume($0, uid: device.uid, for: app.key) },
+                        controlLabel: app.name + " · " + device.name,
+                        onEditingChanged: { model.setAppEditing($0, for: app.key) }
+                    )
+                    .transition(SonaMotion.transition(reduceMotion: reduceMotion))
+                }
+                if devices.isEmpty {
+                    Text(emptyMessage)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .contentTransition(.opacity)
+                        .animation(SonaMotion.feedback(reduceMotion: reduceMotion), value: emptyMessage)
+                        .transition(SonaMotion.transition(reduceMotion: reduceMotion))
+                }
+            }
+            .animation(SonaMotion.content(reduceMotion: reduceMotion), value: devices.map(\.uid))
+            .disabled(!model.canControlAppOutputs)
         } outputPicker: {
-            DeviceMenu(devices: model.outputDevices,
-                       selected: Set(setting.targets), allowsMultiple: true,
-                       onToggle: { model.toggleTarget($0, for: app.key) },
-                       onFollowDefault: { model.update(app.key) { $0.targets = [] } })
-                .accessibilityLabel(app.name + "输出设备")
-                .help("切换输出设备：" + routeDescription)
+            DeviceSelectionButtons(
+                devices: model.outputDevices,
+                selected: Set(setting.selectedTargetUIDs(defaultTarget: model.defaultTargetUID)),
+                appName: app.name,
+                onToggle: { model.toggleTarget($0, for: app.key) }
+            )
+            .disabled(!model.canControlAppOutputs)
         }
         .contextMenu {
             if !setting.isDefault { Button("重置此应用") { model.reset(app.key) } }
@@ -184,19 +279,11 @@ private struct AppCard: View {
         }
         .frame(width: UI.appIcon, height: UI.appIcon)
     }
-
-    private var routeDescription: String {
-        switch setting.targets.count {
-        case 0: return "跟随默认输出"
-        case 1: return model.deviceName(forUID: setting.targets[0])
-        default: return setting.targets.map { model.deviceName(forUID: $0) }.joined(separator: " + ")
-        }
-    }
 }
 
 // MARK: - Shared pieces
 
-/// Both system and app controls share the same header, output button and full-width slider layout.
+/// System and app controls share the same header, device controls and volume-row container.
 private struct AudioControlCard<Heading: View, Controls: View, OutputPicker: View>: View {
     @ViewBuilder let heading: Heading
     @ViewBuilder let controls: Controls
@@ -217,24 +304,44 @@ private struct AudioControlCard<Heading: View, Controls: View, OutputPicker: Vie
     }
 }
 
-/// Control Center layout: quiet speaker · volume track · loud speaker.
-private struct VolumeRow: View {
+/// Every route uses the same device symbol · volume track · loud speaker layout.
+private struct DeviceVolumeRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let device: OutputDevice
     let volume: Double
     let muted: Bool
     let onVolume: (Double) -> Void
     var controlLabel: String = ""
+    var unavailableReason: String? = nil
     var onEditingChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: muted || volume == 0 ? "speaker.slash.fill" : "speaker.fill")
+            DeviceSymbol(device: device)
                 .font(.system(size: 13)).frame(width: 16)
+                .help(device.name)
                 .accessibilityHidden(true)
-            SoundSlider(value: muted ? 0 : volume, label: controlLabel + "音量",
-                        onChange: onVolume, onEditingChanged: onEditingChanged)
-                .frame(height: UI.control)
-                .onDisappear { onEditingChanged(false) }
-                .layoutPriority(1)
+            ZStack(alignment: .leading) {
+                SoundSlider(value: muted ? 0 : volume, label: controlLabel + "音量",
+                            onChange: onVolume, onEditingChanged: onEditingChanged)
+                    .opacity(unavailableReason == nil ? 1 : 0)
+                    .accessibilityHidden(unavailableReason != nil)
+                if let unavailableReason {
+                    Text(unavailableReason)
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .help(unavailableReason)
+                        .accessibilityLabel(controlLabel + "，" + unavailableReason)
+                        .transition(.opacity)
+                }
+            }
+            // Routing state arrives before the hardware level snapshot. Keep
+            // pending/ready in the same slot instead of inserting a second row
+            // that would reverse the card's height as soon as status arrives.
+            .frame(height: UI.control)
+            .animation(SonaMotion.feedback(reduceMotion: reduceMotion), value: unavailableReason)
+            .onDisappear { onEditingChanged(false) }
+            .layoutPriority(1)
             Image(systemName: "speaker.wave.3.fill")
                 .font(.system(size: 16)).frame(width: 24)
                 .accessibilityHidden(true)
@@ -254,39 +361,105 @@ private struct Card<Content: View>: View {
     }
 }
 
-/// A compact icon-only device picker. Single-select for the default output, multi-select for
-/// per-app routing.
-private struct DeviceMenu: View {
-    @EnvironmentObject private var model: AppModel
+/// A device has the same symbol in its routing button and volume row.
+private struct DeviceSymbol: View {
+    let device: OutputDevice
+    var fittingSize: CGFloat? = nil
+
+    @ViewBuilder
+    var body: some View {
+        if let fittingSize {
+            Image(systemName: device.symbolName)
+                .resizable()
+                .symbolRenderingMode(.palette)
+                .scaledToFit()
+                .frame(width: fittingSize, height: fittingSize)
+        } else {
+            Image(systemName: device.symbolName)
+        }
+    }
+}
+
+/// Keep the existing native glass button material for both routing controls.
+private enum DeviceControlStyle {
+    static let selectedSymbolColor = Color(red: 100 / 255, green: 176 / 255, blue: 1)
+
+    static func glass(selected: Bool = false) -> GlassButtonStyle {
+        if #available(macOS 26.1, *) {
+            // Tint the native material itself; keep the optical edge and pressed
+            // feedback without adding another filled background over the glass.
+            return GlassButtonStyle(.clear.tint(selected ? .white.opacity(0.16) : nil))
+        }
+        return GlassButtonStyle()
+    }
+}
+
+/// Independent multi-select state with a neutral native surface and a blue symbol.
+private struct DeviceSelectionButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let device: OutputDevice
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            DeviceSymbol(device: device, fittingSize: 16)
+                .fontWeight(.medium)
+                .foregroundStyle(isSelected ? DeviceControlStyle.selectedSymbolColor : Color.secondary)
+        }
+        .buttonStyle(DeviceControlStyle.glass(selected: isSelected))
+        .buttonBorderShape(.circle)
+        .frame(width: UI.control, height: UI.control)
+        .animation(SonaMotion.feedback(reduceMotion: reduceMotion), value: isSelected)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(isSelected ? "已选中" : "未选中")
+    }
+}
+
+/// Available devices stay directly reachable, including when the strip overflows.
+private struct DeviceSelectionButtons: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let devices: [OutputDevice]
     let selected: Set<String>
-    let allowsMultiple: Bool
+    let appName: String
     let onToggle: (String) -> Void
-    let onFollowDefault: (() -> Void)?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(devices, id: \.uid) { device in
+                    let isSelected = selected.contains(device.uid)
+                    DeviceSelectionButton(device: device, isSelected: isSelected) {
+                        onToggle(device.uid)
+                    }
+                    .accessibilityLabel(appName + "输出到" + device.name)
+                    .help(device.name + (isSelected ? "：已选中，点击停止输出" : "：未选中，点击输出"))
+                    .transition(SonaMotion.transition(reduceMotion: reduceMotion))
+                }
+            }
+            .animation(SonaMotion.content(reduceMotion: reduceMotion), value: devices.map(\.uid))
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .scrollClipDisabled(false)
+        .frame(width: min(CGFloat(devices.count) * UI.control + CGFloat(max(0, devices.count - 1)) * 6, 130),
+               height: UI.control)
+    }
+}
+
+/// The top-level menu retains single selection for the default output.
+private struct DeviceMenu: View {
+    let devices: [OutputDevice]
+    let selected: String
+    let onSelect: (String) -> Void
 
     var body: some View {
         Menu {
-            if let onFollowDefault {
-                Text("默认输出")
-                Button(action: onFollowDefault) {
-                    let name = model.deviceName(forUID: model.defaultTargetUID)
-                    Text(selected.isEmpty ? "\(name)  •" : name)
-                        .accessibilityLabel(selected.isEmpty ? "\(name)，跟随默认输出" : "跟随默认输出：\(name)")
+            ForEach(devices, id: \.uid) { device in
+                Button { onSelect(device.uid) } label: {
+                    let isOutput = selected == device.uid
+                    Text(isOutput ? "\(device.name)  •" : device.name)
+                        .accessibilityLabel(isOutput ? "\(device.name)，当前输出" : device.name)
                 }
-                .disabled(!devices.contains { $0.uid == model.defaultTargetUID })
-                Divider()
-                Text("自定义输出")
-            }
-            ForEach(devices) { d in
-                Button { onToggle(d.uid) } label: {
-                    let isOutput = selected.contains(d.uid)
-                    Text(isOutput ? "\(d.name)  •" : d.name)
-                        .accessibilityLabel(isOutput ? "\(d.name)，当前输出" : d.name)
-                }
-            }
-            if allowsMultiple {
-                Divider()
-                Text("可以选多个设备同时输出")
             }
         } label: {
             Image(systemName: "airplay.audio")
@@ -294,14 +467,9 @@ private struct DeviceMenu: View {
                 .frame(width: 14, height: 14)
         }
         .menuStyle(.button)
-        .buttonStyle(glassStyle)
+        .buttonStyle(DeviceControlStyle.glass())
         .buttonBorderShape(.circle)
         .menuIndicator(.hidden)
         .frame(width: UI.control, height: UI.control)
-    }
-
-    private var glassStyle: GlassButtonStyle {
-        if #available(macOS 26.1, *) { return GlassButtonStyle(.clear) }
-        return GlassButtonStyle()
     }
 }

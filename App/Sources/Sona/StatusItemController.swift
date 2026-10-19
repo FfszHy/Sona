@@ -14,7 +14,9 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
     private let iconAnimator = IconAnimator()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel = SoundPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-    private let contentController: NSViewController
+    private let contentController: NSHostingController<AnyView>
+    private var contentMaxHeight: CGFloat = .infinity
+    private var frameUpdateScheduled = false
     private let settingsMenu = NSMenu()
     private var subscriptions: Set<AnyCancellable> = []
     private var isPanelPresented = false
@@ -22,14 +24,24 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
 
     init(model: AppModel) {
         self.model = model
-        let content = NSHostingController(rootView: MenuContentView().environmentObject(model))
+        let content = NSHostingController(rootView: AnyView(MenuContentView().environmentObject(model)))
         content.sizingOptions = [.preferredContentSize]
         contentController = content
         super.init()
 
         // Only the individual modules draw glass. The hosting root and the
         // window remain transparent, including the spaces between modules.
-        panel.contentViewController = content
+        let container = NSViewController()
+        container.view = TopAlignedPanelContentView()
+        container.addChild(content)
+        container.view.addSubview(content.view)
+        // The host keeps its final natural size while only the window's bottom
+        // edge interpolates. Intermediate window heights must not feed back
+        // into SwiftUI's content measurement or scroll position.
+        content.view.autoresizingMask = []
+        content.view.clipsToBounds = false
+        content.rootView = makeContentView(maxHeight: .infinity)
+        panel.contentViewController = container
         panel.backgroundColor = .clear
         panel.isOpaque = false
         // Keep each module's optical edge without a window-sized shadow.
@@ -70,13 +82,13 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
             .store(in: &subscriptions)
         content.publisher(for: \.preferredContentSize, options: [.initial, .new])
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updatePanelFrame() }
+            .sink { [weak self] _ in self?.schedulePanelFrameUpdate() }
             .store(in: &subscriptions)
         NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)
             .sink { [weak self] _ in self?.hidePanel() }
             .store(in: &subscriptions)
         NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
-            .sink { [weak self] _ in self?.updatePanelFrame() }
+            .sink { [weak self] _ in self?.updatePanelFrame(animated: false) }
             .store(in: &subscriptions)
         updateIcon()
     }
@@ -116,7 +128,7 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
             panel.ignoresMouseEvents = false
             panel.reducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             updatePanelAppearance()
-            updatePanelFrame()
+            updatePanelFrame(animated: false)
             if !panel.isVisible { panel.revealProgress = 0 }
             panel.makeKeyAndOrderFront(nil)
             // Finish the hosting view's first layout and drawing before starting
@@ -167,18 +179,55 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
         }
     }
 
-    private func updatePanelFrame() {
+    private func makeContentView(maxHeight: CGFloat) -> AnyView {
+        AnyView(MenuContentView(maxHeight: maxHeight,
+                                onContentLayoutChange: { [weak self] in self?.schedulePanelFrameUpdate() })
+            .environmentObject(model)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top))
+    }
+
+    private func schedulePanelFrameUpdate() {
+        guard !frameUpdateScheduled else { return }
+        frameUpdateScheduled = true
+        // Coalesce one model update's structural changes after SwiftUI has
+        // resolved its new ideal size. Volume writes do not call this path.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.frameUpdateScheduled = false
+            // Let an in-flight dismissal finish at its existing size. Opening
+            // always measures the latest content before ordering the panel in.
+            guard self.isPanelPresented || !self.panel.isVisible else { return }
+            self.updatePanelFrame()
+        }
+    }
+
+    private func updatePanelFrame(animated: Bool = true) {
         guard let button = statusItem.button, let buttonWindow = button.window else { return }
         let anchor = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         guard let screen = buttonWindow.screen ?? NSScreen.screens.first(where: { $0.frame.contains(anchor.origin) }) ?? NSScreen.main else { return }
         let visible = screen.visibleFrame.insetBy(dx: 8, dy: 8)
+        let top = min(max(anchor.minY - 6, visible.minY + 1), visible.maxY)
+        let availableHeight = max(1, top - visible.minY)
+        let availableHeightChanged = contentMaxHeight != availableHeight
+        if availableHeightChanged {
+            contentMaxHeight = availableHeight
+            contentController.rootView = makeContentView(maxHeight: availableHeight)
+            contentController.view.layoutSubtreeIfNeeded()
+        }
         let ideal = contentController.preferredContentSize
         let fitting = contentController.view.fittingSize
         let size = NSSize(width: min(max(1, ideal.width > 0 ? ideal.width : fitting.width), visible.width),
-                          height: min(max(1, ideal.height > 0 ? ideal.height : fitting.height), visible.height))
+                          height: min(max(1, ideal.height > 0 ? ideal.height : fitting.height), availableHeight))
         let origin = NSPoint(x: min(max(anchor.midX - size.width / 2, visible.minX), visible.maxX - size.width),
-                             y: min(max(anchor.minY - 6 - size.height, visible.minY), visible.maxY - size.height))
-        panel.setRestingFrame(NSRect(origin: origin, size: size))
+                             y: top - size.height)
+        // A flipped transparent container keeps the host at the same top-left
+        // point, including outgoing SwiftUI content during a height reduction.
+        let hostFrame = NSRect(origin: .zero, size: size)
+        if contentController.view.frame != hostFrame {
+            contentController.view.frame = hostFrame
+        }
+        panel.setRestingFrame(NSRect(origin: origin, size: size),
+                              animated: animated && !availableHeightChanged && isPanelPresented && panel.isVisible)
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -217,28 +266,59 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 }
 
+/// Keeps native hosted controls anchored to the menu bar while the bottom moves.
+private final class TopAlignedPanelContentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 /// A borderless panel still participates in native keyboard focus and Escape dismissal.
 private final class SoundPanel: NSPanel {
     var onCancel: (() -> Void)?
     var reducesMotion = false
-    private var restingFrame: NSRect?
+    private var targetRestingFrame: NSRect?
+
+    // AppKit interpolates the native window geometry without scaling its glass
+    // or its controls. Re-targeting starts from the current on-screen rectangle.
+    @objc dynamic var restingFrame: NSRect = .zero {
+        didSet { applyPresentedFrame() }
+    }
 
     // AppKit retargets this scalar from its current value on a rapid reversal.
     @objc dynamic var revealProgress: CGFloat = 1 {
         didSet {
             alphaValue = revealProgress
-            if let restingFrame { setFrameOrigin(revealedFrame(restingFrame).origin) }
+            applyPresentedFrame()
         }
     }
 
     override class func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
-        if key == "revealProgress" { return CABasicAnimation() }
+        if key == "revealProgress" || key == "restingFrame" { return CABasicAnimation() }
         return super.defaultAnimation(forKey: key)
     }
 
-    func setRestingFrame(_ frame: NSRect) {
-        restingFrame = frame
-        setFrame(revealedFrame(frame), display: isVisible)
+    func setRestingFrame(_ frame: NSRect, animated: Bool) {
+        let shouldAnimate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        // Preferred-size notifications may repeat during layout. A duplicate
+        // target must not keep restarting the same content resize.
+        guard targetRestingFrame != frame || (!shouldAnimate && restingFrame != frame) else { return }
+        targetRestingFrame = frame
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = shouldAnimate ? SonaMotion.contentDuration : 0
+            context.timingFunction = SonaMotion.contentTimingFunction
+            animator().restingFrame = frame
+        }
+        if !shouldAnimate { restingFrame = frame }
+    }
+
+    private func applyPresentedFrame() {
+        guard targetRestingFrame != nil else { return }
+        let presentedFrame = revealedFrame(restingFrame)
+        guard self.frame != presentedFrame else { return }
+        if self.frame.size == presentedFrame.size {
+            setFrameOrigin(presentedFrame.origin)
+        } else {
+            setFrame(presentedFrame, display: isVisible)
+        }
     }
 
     private func revealedFrame(_ frame: NSRect) -> NSRect {

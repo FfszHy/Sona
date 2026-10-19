@@ -221,3 +221,5 @@ test-app:
 	@mkdir -p $(APP_DIR)/build
 	swiftc $(APP_DIR)/Sources/Sona/OutputLevelWriter.swift $(APP_DIR)/Tests/OutputLevelWriterTests.swift -o $(APP_DIR)/build/OutputLevelWriterTests
 	$(APP_DIR)/build/OutputLevelWriterTests
+	swiftc $(APP_DIR)/Sources/Sona/SonaProtocol.swift $(APP_DIR)/Tests/AppAudioSettingTests.swift -o $(APP_DIR)/build/AppAudioSettingTests
+	$(APP_DIR)/build/AppAudioSettingTests

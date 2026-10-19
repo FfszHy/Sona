@@ -19,6 +19,7 @@
 #include <climits>
 #include <cmath>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -35,7 +36,11 @@ struct ClientSlot {
     std::atomic<bool>     used{false};
     std::atomic<uint32_t> instance{0};
     std::atomic<float>    gain{1.0f};
-    std::atomic<UInt32>   routeMask{0};      // 0 = follow default target
+    // A negative slot gain uses the legacy app-wide gain. UID lookup stays on the
+    // control queue; the mixer only reads this fixed array of atomics.
+    std::atomic<float>    targetGains[kMaxTargets];
+    std::atomic<UInt32>   routeMask{0};
+    std::atomic<bool>     followDefault{true};
     std::atomic<UInt64>   lastSignalHostTime{0};
     std::atomic<bool>     played{false};
     // Control queue only.
@@ -44,12 +49,17 @@ struct ClientSlot {
     pid_t       pid = 0;
     std::string bundleID;
     std::string key;
+    ClientSlot() { for (auto& targetGain : targetGains) targetGain.store(-1.0f); }
 };
 
 struct AppSetting {
     float gain = 1.0f;
     bool  mute = false;
     std::vector<std::string> targets;
+    std::optional<bool> followDefault;
+    std::unordered_map<std::string, float> targetVolumes;
+
+    bool followsDefault() const { return followDefault.value_or(targets.empty()); }
 };
 
 static dispatch_queue_t          gConfigQueue = nullptr;
@@ -95,6 +105,7 @@ static bool                      gHALClientReady = false;
 
 // Shared region handed over by the transport layer.
 static std::atomic<void*>        gRegion{nullptr};
+static std::string               gServiceSessionID;    // new UUID for every attached session, including service restarts
 static std::atomic<uint64_t>     gMixerPass{0};          // odd while the mixer thread is inside a pass
 static std::atomic<uint32_t>     gMixResetRequested{0};  // control queue -> mixer thread
 static std::atomic<uint32_t>     gFormatGeneration{0};
@@ -405,22 +416,32 @@ static const AppSetting* SonaSettingForClient(const ClientSlot& c, const std::un
 static void SonaApplySettingsToClient(ClientSlot& c, bool updateRoute = true) {
     const auto* setting = SonaSettingForClient(c, gAppSettings);
     c.gain.store(setting ? (setting->mute ? 0.0f : setting->gain) : 1.0f, std::memory_order_relaxed);
+    for (UInt32 slot = 0; slot < kMaxTargets; ++slot) {
+        float gain = -1.0f;
+        if (setting) {
+            auto override = setting->targetVolumes.find(gTargets[slot].uid);
+            if (override != setting->targetVolumes.end()) gain = setting->mute ? 0.0f : override->second;
+        }
+        c.targetGains[slot].store(gain, std::memory_order_relaxed);
+    }
     if (!updateRoute) return;
     UInt32 mask = 0;
-    if (setting) for (const std::string& uid : setting->targets) {
+    const bool followDefault = !setting || setting->followsDefault();
+    if (setting && !followDefault) for (const std::string& uid : setting->targets) {
         int slot = SonaTargetSlotForUID(uid);
         if (slot >= 0) mask |= (1u << slot);
     }
     c.routeMask.store(mask, std::memory_order_relaxed);
+    c.followDefault.store(followDefault, std::memory_order_relaxed);
 }
 
 static bool SonaRoutesChanged(const std::unordered_map<std::string, AppSetting>& before,
                               const std::unordered_map<std::string, AppSetting>& after) {
     auto differs = [](const auto& a, const auto& b) {
         for (const auto& entry : a) {
-            if (entry.second.targets.empty()) continue;
+            if (entry.second.followsDefault()) continue;
             auto it = b.find(entry.first);
-            if (it == b.end() || it->second.targets != entry.second.targets) return true;
+            if (it == b.end() || it->second.followsDefault() || it->second.targets != entry.second.targets) return true;
         }
         return false;
     };
@@ -430,6 +451,7 @@ static bool SonaRoutesChanged(const std::unordered_map<std::string, AppSetting>&
         if (!client.used.load(std::memory_order_acquire)) continue;
         auto* oldSetting = SonaSettingForClient(client, before);
         auto* newSetting = SonaSettingForClient(client, after);
+        if ((oldSetting ? oldSetting->followsDefault() : true) != (newSetting ? newSetting->followsDefault() : true)) return true;
         if ((oldSetting ? oldSetting->targets : empty) != (newSetting ? newSetting->targets : empty)) return true;
     }
     return false;
@@ -497,7 +519,8 @@ static void SonaReconcileTargets() {
             if (desired.size() < kMaxTargets) desired.push_back(uid);
         };
         addDesired(gDefaultTargetUID);
-        for (auto& kv : gAppSettings) for (auto& uid : kv.second.targets) addDesired(uid);
+        for (auto& kv : gAppSettings) if (!kv.second.followsDefault())
+            for (auto& uid : kv.second.targets) addDesired(uid);
         for (UInt32 i = 0; i < kMaxTargets; ++i) {
             SonaTarget& t = gTargets[i];
             if (t.uid.empty()) continue;
@@ -568,6 +591,23 @@ static void SonaApplyConfig(CFDictionaryRef config, bool persist) {
                             if (uid && CFGetTypeID(uid) == CFStringGetTypeID()) s.targets.push_back(SonaStdString(uid));
                         }
                     }
+                    auto follow = CFDictionaryGetValue(d, CFSTR(kSonaAppKey_FollowDefault));
+                    if (follow && CFGetTypeID(follow) == CFBooleanGetTypeID())
+                        s.followDefault = CFBooleanGetValue((CFBooleanRef)follow);
+                    auto targetVolumes = CFDictionaryGetValue(d, CFSTR(kSonaAppKey_TargetVolumes));
+                    if (targetVolumes && CFGetTypeID(targetVolumes) == CFDictionaryGetTypeID()) {
+                        auto volumes = (CFDictionaryRef)targetVolumes;
+                        const CFIndex count = CFDictionaryGetCount(volumes);
+                        std::vector<const void*> uids(count), gains(count);
+                        CFDictionaryGetKeysAndValues(volumes, uids.data(), gains.data());
+                        for (CFIndex t = 0; t < count; ++t) {
+                            if (CFGetTypeID(uids[t]) != CFStringGetTypeID() || CFGetTypeID(gains[t]) != CFNumberGetTypeID()) continue;
+                            double gain = 1;
+                            if (!CFNumberGetValue((CFNumberRef)gains[t], kCFNumberDoubleType, &gain) || !std::isfinite(gain)) continue;
+                            const auto uid = SonaStdString((CFStringRef)uids[t]);
+                            if (!uid.empty()) s.targetVolumes[uid] = (float)std::fmax(0.0, std::fmin(4.0, gain));
+                        }
+                    }
                     gAppSettings[SonaStdString(key)] = s;
                 }
             }
@@ -635,9 +675,12 @@ CFDictionaryRef SonaEngineCopyStatus() {
     CFNumberRef rateN = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat64Type, &rate);
     CFDictionarySetValue(d, CFSTR(kSonaStatusKey_SampleRate), rateN); CFRelease(rateN);
     CFDictionarySetValue(d, CFSTR(kSonaStatusKey_IORunning), gIORunning.load() ? kCFBooleanTrue : kCFBooleanFalse);
+    CFDictionarySetValue(d, CFSTR(kSonaStatusKey_SupportsAppTargetVolumes), kCFBooleanTrue);
     CFStringRef def = SonaCFString(gDefaultTargetUID.c_str());
     CFDictionarySetValue(d, CFSTR(kSonaStatusKey_DefaultTarget), def); CFRelease(def);
     CFDictionarySetValue(d, CFSTR("serviceConnected"), gRegion.load() ? kCFBooleanTrue : kCFBooleanFalse);
+    CFStringRef sessionID = SonaCFString(gServiceSessionID.c_str());
+    CFDictionarySetValue(d, CFSTR(kSonaStatusKey_ServiceSessionID), sessionID); CFRelease(sessionID);
     CFMutableArrayRef targets = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
     for (UInt32 i = 0; i < kMaxTargets; ++i) {
         SonaTarget& t = gTargets[i];
@@ -919,12 +962,15 @@ static void SonaMixOnce(void* region, uint64_t now) {
             const uint32_t skip = start < gMixedUpTo ? (uint32_t)(gMixedUpTo - start) : 0;
             if (skip) gMixLateBlocks.fetch_add(1, std::memory_order_relaxed);
             if (SonaBlockHasSignal(b)) { c.lastSignalHostTime.store(now, std::memory_order_relaxed); c.played.store(true, std::memory_order_relaxed); }
-            const float gain = c.gain.load(std::memory_order_relaxed);
-            UInt32 mask = c.routeMask.load(std::memory_order_relaxed);
-            if (mask == 0) mask = defaultMask;
-            if (gain != 0.0f) for (UInt32 sink = 0; sink < kMaxTargets; ++sink)
-                if ((mask & (1u << sink)) && gTargets[sink].active.load(std::memory_order_acquire))
-                    SonaMixAccumulate(sink, start, skip, b, gain);
+            const float appGain = c.gain.load(std::memory_order_relaxed);
+            const UInt32 mask = c.followDefault.load(std::memory_order_relaxed)
+                ? defaultMask : c.routeMask.load(std::memory_order_relaxed);
+            for (UInt32 sink = 0; sink < kMaxTargets; ++sink) {
+                if (!(mask & (1u << sink)) || !gTargets[sink].active.load(std::memory_order_acquire)) continue;
+                const float override = c.targetGains[sink].load(std::memory_order_relaxed);
+                const float gain = override >= 0.0f ? override : appGain;
+                if (gain != 0.0f) SonaMixAccumulate(sink, start, skip, b, gain);
+            }
             if (end > gMixAccumEnd) gMixAccumEnd = end;
             SonaTransportRingConsume(ring, b);
         }
@@ -976,6 +1022,15 @@ void SonaEngineAttachRegion(void* region, uint64_t generation) {
         SonaLog("attach while a region is still published; the caller must detach first");
         SonaEngineDetachRegion();
     }
+    // Region generations restart at one when the service process restarts. A UUID
+    // lets the app replay preferences even when the driver still caches old status.
+    CFUUIDRef uuid = CFUUIDCreate(nullptr);
+    CFStringRef uuidString = CFUUIDCreateString(nullptr, uuid);
+    {
+        std::lock_guard<std::recursive_mutex> lock(gStateMutex);
+        gServiceSessionID = SonaStdString(uuidString);
+    }
+    CFRelease(uuidString); CFRelease(uuid);
     SonaTransportClock* cell = SonaTransportClockCell(region);
     for (auto& t : gTargets) t.clockCell.store(cell, std::memory_order_release);
     gMixResetRequested.store(1, std::memory_order_release);   // the mixer starts the new timeline itself
