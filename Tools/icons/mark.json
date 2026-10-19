@@ -1,0 +1,10 @@
+{
+  "name": "Sona Flow S",
+  "version": 2,
+  "viewBox": [0, 0, 112, 104],
+  "xExpansion": 1.1,
+  "path": "M78 18 C63 5 38 6 24 17 C14 25 13 35 20 43 C27 51 43 53 56 57 C68 61 73 64 70 70 C65 81 43 81 31 72 C27 68 21 67 17 71 C13 75 14 81 18 85 C37 101 70 99 83 80 C94 65 90 54 78 47 C69 42 55 40 42 36 C34 34 31 32 34 28 C39 21 56 21 66 29 C71 33 77 32 81 27 C84 24 82 21 78 18 Z",
+  "app": {"scale": 6.4, "translate": [153, 179]},
+  "menu": {"scale": 0.154, "translate": [2.35, -0.05]},
+  "note": "xExpansion is applied once to all x coordinates, then the same expanded fill path is reused without further shape changes."
+}
