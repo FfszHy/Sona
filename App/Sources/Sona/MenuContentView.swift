@@ -10,7 +10,7 @@ private enum UI {
     static let outerPadding: CGFloat = 12
     static let cardPaddingH: CGFloat = 12
     static let cardPaddingV: CGFloat = 10
-    static let cardGap: CGFloat = 7
+    static let cardGap: CGFloat = 12
     static let control: CGFloat = 28
     static let appIcon: CGFloat = 24
     static let maxVisibleRows = 6
@@ -20,7 +20,7 @@ struct MenuContentView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: UI.cardGap) {
             if !model.driverInstalled {
                 soundHeading
                 notice("需要安装 Sona 驱动", systemImage: "exclamationmark.triangle.fill",
@@ -103,13 +103,7 @@ struct MenuContentView: View {
     // MARK: - Apps
 
     private var appsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("应用").font(.caption.weight(.semibold))
-                Spacer()
-            }
-            .padding(.horizontal, 4)
-
+        Group {
             if model.apps.isEmpty {
                 Card {
                     HStack(spacing: 8) {
@@ -251,12 +245,12 @@ private struct VolumeRow: View {
 private struct Card<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
-        // The panel's NSGlassEffectView supplies the shared Liquid Glass surface.
-        // Keep each group transparent so the native material remains visible.
-        content
-            .padding(.horizontal, UI.cardPaddingH)
-            .padding(.vertical, UI.cardPaddingV)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        LiquidGlassCard {
+            content
+                .padding(.horizontal, UI.cardPaddingH)
+                .padding(.vertical, UI.cardPaddingV)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

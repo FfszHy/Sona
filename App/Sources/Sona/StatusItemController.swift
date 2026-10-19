@@ -14,7 +14,6 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
     private let iconAnimator = IconAnimator()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let panel = SoundPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-    private let glass = NSGlassEffectView()
     private let contentController: NSViewController
     private let settingsMenu = NSMenu()
     private var subscriptions: Set<AnyCancellable> = []
@@ -28,18 +27,12 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
         contentController = content
         super.init()
 
-        glass.style = .clear
-        glass.cornerRadius = 26
-        glass.contentView = content.view
-        content.view.autoresizingMask = [.width, .height]
-
-        let container = NSViewController()
-        container.view = glass
-        container.addChild(content)
-        panel.contentViewController = container
+        // Only the individual modules draw glass. The hosting root and the
+        // window remain transparent, including the spaces between modules.
+        panel.contentViewController = content
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        // Keep the glass's optical edge without a second window-shadow contour.
+        // Keep each module's optical edge without a window-sized shadow.
         panel.hasShadow = false
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
@@ -101,13 +94,9 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
         // the app uses Aqua. Match its appearance, rather than the app's theme.
         guard let name = statusItem.button?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]),
               let appearance = NSAppearance(named: name) else { return }
-        // The material and its content must resolve colors in the same appearance.
-        glass.appearance = appearance
-        // withAlphaComponent resolves the system color immediately. Refresh it
-        // here so a tint created in Aqua cannot stay white over dark content.
-        appearance.performAsCurrentDrawingAppearance {
-            glass.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.35)
-        }
+        // Each module's glass and hosted controls inherit this appearance.
+        // LiquidGlassCard refreshes its native tint when that appearance changes.
+        contentController.view.appearance = appearance
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
