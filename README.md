@@ -13,9 +13,9 @@ Actual application screenshot, provided by the project author.
 ## Features
 
 - **App volume.** Adjust each app's volume separately for each selected output; slide to zero to mute that route.
-- **Output routing.** Use the default output, choose a device per app, or play through several devices at once.
+- **Output routing.** Apps follow the current default output, including while playing when you connect headphones or change the system output. Choose another device per app, or play through several devices at once.
 - **Device controls.** Adjust output volumes and switch the default device from one panel.
-- **Remembered settings.** Keep app volumes and output choices between sessions. Login launch and automatic switching to newly connected devices are optional.
+- **Remembered settings.** Keep app volumes and mute settings, including volume levels for each device. Manual output choices survive pauses and reset when that app quits or Sona restarts. Login launch and automatic switching to newly connected devices are optional.
 
 Sona uses a virtual audio output and a separate audio service. It does not request microphone or system recording permission.
 
@@ -29,7 +29,9 @@ The preview is not Developer ID signed or notarized. If macOS blocks the install
 
 1. Run the installer with administrator access, then open Sona.
 2. Click the menu bar icon and choose your default output with the device button beside **声音** (Sound).
-3. Play audio. Apps appear under **应用** (Apps). Select output devices to show their volume sliders; clearing every device silences that app.
+3. Play audio. Apps appear under **应用** (Apps). Select output devices to show their volume sliders; clearing every device silences that app until you select an output again or restart the app or Sona. Selecting only the current default output resumes following the default.
+
+Manual choices of another output, multiple outputs or no output stay in place when the default changes.
 
 Right-click the menu bar icon for login launch, automatic device switching and Quit. On normal exit, Sona attempts to restore the physical output.
 

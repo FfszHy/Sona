@@ -303,7 +303,9 @@ int main() {
     gStateFile = stateFile;
     auto persistedConfig = configFor("<key>persist.app</key><dict><key>volume</key><real>0.75</real>"
         "<key>followDefault</key><false/><key>targets</key><array><string>device-b</string></array>"
-        "<key>targetVolumes</key><dict><key>device-a</key><real>0.2</real><key>device-b</key><real>0.6</real></dict></dict>");
+        "<key>routeOwner</key><string>persist.app</string><key>playbackSession</key><integer>1234</integer>"
+        "<key>targetVolumes</key><dict><key>device-a</key><real>0.2</real><key>device-b</key><real>0.6</real></dict></dict>"
+        "<key>pid:999</key><dict><key>targets</key><array><string>device-b</string></array></dict>");
     { std::lock_guard<std::recursive_mutex> lock(gStateMutex); if (gConfig) CFRelease(gConfig); gConfig = (CFDictionaryRef)CFRetain(persistedConfig); }
     SonaSaveState();
     gOutputLevels.clear();
@@ -312,13 +314,21 @@ int main() {
     SonaRestoreOutputLevels(loaded);
     assert(gOutputLevels["device-c"].volume == 0.3f && !gOutputLevels["device-c"].mute);
     auto loadedConfig = (CFDictionaryRef)CFDictionaryGetValue(loaded, CFSTR("config"));
-    assert(loadedConfig && CFEqual(loadedConfig, persistedConfig));
+    auto expectedSavedConfig = SonaConfigWithoutRoutes(persistedConfig);
+    assert(loadedConfig && CFEqual(loadedConfig, expectedSavedConfig));
+    const auto savedApps = (CFDictionaryRef)CFDictionaryGetValue(loadedConfig, CFSTR("apps"));
+    const auto savedApp = (CFDictionaryRef)CFDictionaryGetValue(savedApps, CFSTR("persist.app"));
+    assert(!CFDictionaryContainsKey(savedApps, CFSTR("pid:999")));
+    assert(!CFDictionaryContainsKey(savedApp, CFSTR("targets")));
+    assert(!CFDictionaryContainsKey(savedApp, CFSTR("routeOwner")) && !CFDictionaryContainsKey(savedApp, CFSTR("playbackSession")));
     SonaApplyConfig(loadedConfig, false);
     const auto& restoredApp = gAppSettings.at("persist.app");
-    assert(!restoredApp.followsDefault() && restoredApp.targetVolumes.at("device-b") == 0.6f);
+    assert(restoredApp.followsDefault() && restoredApp.targets.empty());
+    assert(restoredApp.gain == 0.75f && restoredApp.targetVolumes.at("device-b") == 0.6f);
     auto copiedConfig = SonaEngineCopyConfig();
-    assert(copiedConfig && CFEqual(copiedConfig, persistedConfig));
+    assert(copiedConfig && CFEqual(copiedConfig, expectedSavedConfig));
     CFRelease(copiedConfig);
+    CFRelease(expectedSavedConfig);
     CFRelease(loaded); CFRelease(persistedConfig);
     unlink(stateFile);
     gStateFile.clear();
@@ -533,6 +543,110 @@ int main() {
         }
         gHardwareVolume = true; gHardwareMute = true;
         gAppSettings.clear();
+        free(region);
+    }
+
+    // ---- Runtime routes belong to the owner app launch, not source activity or CoreAudio IO.
+    // The app sends gain-only bundle defaults plus manual PID aliases for still-live processes.
+    {
+        void* region = nullptr;
+        assert(posix_memalign(&region, 4096, kSonaTransportRegionSize) == 0);
+        SonaTransportInitRegion(region, 300);
+        for (auto& c : gClients) { c.used = false; c.instance = 0; c.lastSignalHostTime = 0; c.notifiedAudible = false; }
+        gAppSettings.clear();
+        gTargets[0].uid = "device-a"; gTargets[1].uid = "device-b";
+        gTargets[0].active = true; gTargets[1].active = true;
+        gOutputControls[0].gain = 1; gOutputControls[1].gain = 1;
+        gDefaultMask = 1; gHardwareVolume = true; gHardwareMute = true;
+        gFormatGeneration = 30; gSampleRate = 48000;
+        SonaMixResetAnchor(); SonaMixReset(-1); gMixResetRequested = 0;
+        const auto start = mach_absolute_time();
+        const auto blockTicks = UInt64(std::ceil(128 * gHostTicksPerSecond / 48000));
+        UInt64 now = start + blockTicks;
+        double sampleTime = 1000;
+        auto render = [&](UInt32 slot, float expectedA, float expectedB) {
+            for (UInt32 i = 0; i < 2; ++i) gTargets[i].ring.flush();
+            float pcm[128 * 2]; for (auto& sample : pcm) sample = 1;
+            SonaTransportBlock block = {};
+            block.frames = 128; block.instance = gClients[slot].instance.load(); block.formatGeneration = 30;
+            block.sampleTime = sampleTime; block.hostTime = now - blockTicks;
+            block.flags = kSonaBlockFlag_TimestampValid;
+            assert(SonaTransportRingWrite(SonaTransportRing(region, slot), pcm, block));
+            SonaMixOnce(region, now);
+            for (UInt32 i = 0; i < 2; ++i) {
+                assert(gTargets[i].ring.available() >= 128);
+                for (UInt32 f = 0; f < 128; ++f) {
+                    float l, r; gTargets[i].ring.sample(f, l, r);
+                    const auto expected = i == 0 ? expectedA : expectedB;
+                    assert(std::fabs(l - expected) < 1e-6f && std::fabs(r - expected) < 1e-6f);
+                }
+            }
+            sampleTime += 128; now += blockTicks;
+        };
+        const std::string gains = "<key>volume</key><real>0.5</real><key>targetVolumes</key><dict>"
+            "<key>device-a</key><real>0.25</real><key>device-b</key><real>0.75</real></dict>";
+        const std::string toA = "<key>followDefault</key><false/><key>targets</key><array><string>device-a</string></array>";
+        const std::string toB = "<key>followDefault</key><false/><key>targets</key><array><string>device-b</string></array>";
+        const std::string toBoth = "<key>followDefault</key><false/><key>targets</key><array><string>device-a</string><string>device-b</string></array>";
+        const std::string toNone = "<key>followDefault</key><false/><key>targets</key><array/>";
+        auto choose = [&](const std::string& route, const std::string& defaultUID = "device-a", bool bindNewPID = false) {
+            std::string entries = "<key>runtime.owner</key><dict>" + gains + "<key>followDefault</key><true/></dict>"
+                "<key>pid:900</key><dict>" + gains + route + "</dict>";
+            if (bindNewPID) entries += "<key>pid:901</key><dict>" + gains + route + "</dict>";
+            auto config = configFor(entries, defaultUID);
+            SonaApplyConfig(config, false);
+            CFRelease(config);
+            // Mock sinks do not enter HAL reconciliation. Apply exactly its final route step.
+            for (auto& c : gClients) if (c.used) SonaApplySettingsToClient(c);
+            gDefaultMask = defaultUID == "device-a" ? 1 : 2;
+        };
+
+        SonaEngineClientAdd(0, 1, 100, 900, "runtime.owner");
+        choose("");
+        render(0, 0.25f, 0);
+        // The same client and timeline immediately follow a new default during ongoing audio.
+        choose("", "device-b");
+        render(0, 0, 0.75f);
+        choose(toA, "device-b");
+        render(0, 0.25f, 0); // A manual selection remains pinned when the default changes.
+        choose(toA, "device-a");
+        render(0, 0.25f, 0);
+        choose(toA, "device-b");
+        render(0, 0.25f, 0);
+
+        // No elapsed-silence threshold can distinguish a pause from a new playback session.
+        for (const auto& route : {toB, toBoth, toNone}) {
+            choose(route);
+            const auto expectedA = route == toBoth ? 0.25f : 0;
+            const auto expectedB = route == toNone ? 0 : 0.75f;
+            render(0, expectedA, expectedB);
+            now += UInt64(24 * 60 * 60 * gHostTicksPerSecond);
+            assert(!SonaClientAudible(gClients[0], now));
+            render(0, expectedA, expectedB); // First sample after a day-long pause keeps its route.
+            gIORunning = true;
+            SonaEngineSetIORunning(false);
+            SonaEngineSetIORunning(true);
+            render(0, expectedA, expectedB);
+            const auto instance = gClients[0].instance.load();
+            SonaEngineClientRemove(0, instance);
+            assert(!gClients[0].used);
+            SonaEngineClientAdd(0, instance + 1, 100 + instance, 900, "runtime.owner");
+            render(0, expectedA, expectedB); // Last source client can be recreated by the same live PID.
+        }
+
+        choose(toBoth);
+        SonaEngineClientRemove(0, gClients[0].instance.load());
+        SonaEngineClientAdd(0, 50, 200, 901, "runtime.owner");
+        render(0, 0.25f, 0); // A new app PID cannot inherit an older PID's manual route.
+        choose(toBoth, "device-a", true);
+        render(0, 0.25f, 0.75f); // Mapping a live owner/helper applies its current runtime choice.
+        choose("", "device-b", true);
+        render(0, 0, 0.75f); // Resetting the owner to follow-default also clears the PID route.
+
+        for (auto& c : gClients) { c.used = false; c.instance = 0; c.lastSignalHostTime = 0; }
+        gIORunning = false;
+        gAppSettings.clear();
+        for (UInt32 i = 0; i < 2; ++i) { gTargets[i].active = false; gTargets[i].uid.clear(); gTargets[i].ring.flush(); }
         free(region);
     }
 

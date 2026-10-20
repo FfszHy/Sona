@@ -28,7 +28,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var outputDevices: [OutputDevice] = []
     @Published private(set) var isActive = false            // system default output == Sona
     @Published private(set) var apps: [AudioApp] = []
-    @Published var defaultTargetUID: String = "" { didSet { if defaultTargetUID != oldValue { persist(); pushConfig() } } }
+    @Published var defaultTargetUID: String = "" { didSet { if defaultTargetUID != oldValue { persist(); pushConfig(immediately: true) } } }
     /// User picked a default output by hand: keep it even if an auto-selected device disconnects.
     func selectDefaultTarget(_ uid: String) {
         targetBeforeAutoSwitch = nil
@@ -58,7 +58,10 @@ final class AppModel: ObservableObject {
     private var reconnectTimer: Timer?
     private var pushTask: Task<Void, Never>?
     private var configPushRequested = false
-    private var lastClients: [DriverClient] = []
+    private var clientOwners: [String: Set<pid_t>] = [:]
+    private var routingLifetime = AppRoutingLifetime()
+    private var appLifecycleObservers: [NSObjectProtocol] = []
+    private var restoringSystemOutput = false
     private var lastPushedApps: [String: AppAudioSetting] = [:]
     private var lastAppsSummary = ""
     private var volumeListener: AudioObjectPropertyListenerBlock?
@@ -108,13 +111,18 @@ final class AppModel: ObservableObject {
         load()
         driver.onClientsChanged = { [weak self] in self?.refreshClients() }
         driver.onStatusChanged = { [weak self] in self?.refreshStatus() }
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            appLifecycleObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshClients() }
+            })
+        }
         let system = AudioObjectID(kAudioObjectSystemObject)
         deviceListListener = AudioSystem.addListener(system, kAudioHardwarePropertyDevices) { [weak self] in
             self?.refreshDevices()
             self?.reconnectIfNeeded()
         }
         defaultDeviceListener = AudioSystem.addListener(system, kAudioHardwarePropertyDefaultOutputDevice) { [weak self] in
-            self?.refreshActive()
+            self?.systemDefaultChanged()
         }
         refreshDevices()
         reconnectIfNeeded()
@@ -147,7 +155,8 @@ final class AppModel: ObservableObject {
         } else if !driverConnected && wasConnected {
             NSLog("Sona: disconnected from driver")
             if !apps.isEmpty { apps = [] }
-            lastClients = []
+            // A service/driver reconnect is not an owner-app relaunch. Keep its
+            // live process mappings and manual choices for config replay.
             if status != nil { status = nil }
             detachMasterListeners()
         }
@@ -318,15 +327,37 @@ final class AppModel: ObservableObject {
     private func refreshClients() {
         guard driverConnected else { return }
         let clients = driver.fetchClients()
-        lastClients = clients
+        var instances: [String: Set<AppProcessInstance>] = [:]
+        for app in NSWorkspace.shared.runningApplications {
+            guard let owner = ProcessOwner.userApp(app), !Self.hiddenBundleIDs.contains(owner.key) else { continue }
+            instances[owner.key, default: []].insert(owner.instance)
+        }
+
+        // A pause may destroy its Core Audio client while the source process stays
+        // alive. Retain that PID route so recreating the client cannot leak to default.
+        var ownersByPID: [pid_t: ProcessOwner.Owner] = [:]
+        for c in clients { ownersByPID[c.pid] = ProcessOwner.owner(of: c.pid, fallbackBundleID: c.bundleID) }
+        let knownPIDs = clientOwners.values.reduce(into: Set<pid_t>()) { $0.formUnion($1) }
+        for pid in knownPIDs where ownersByPID[pid] == nil {
+            guard ProcessOwner.processName(pid) != nil else { continue }
+            ownersByPID[pid] = ProcessOwner.owner(of: pid, fallbackBundleID: nil)
+        }
+        clientOwners = [:]
+        for (pid, owner) in ownersByPID where owner.isUserApp && !Self.hiddenBundleIDs.contains(owner.key) {
+            instances[owner.key, default: []].insert(owner.instance)
+            clientOwners[owner.key, default: []].insert(pid)
+        }
+        let previousSettings = appSettings
+        routingLifetime.refresh(owners: instances, settings: &appSettings)
+        if appSettings != previousSettings { persist() }
 
         // Group helper processes (WebKit GPU, Chrome Helper, ...) under the app that owns them.
         var grouped: [String: (owner: ProcessOwner.Owner, clients: [DriverClient], running: Bool)] = [:]
         for c in clients {
             if Self.hiddenBundleIDs.contains(c.bundleID ?? "") { continue }
-            let owner = ProcessOwner.owner(of: c.pid, fallbackBundleID: c.bundleID)
+            guard let owner = ownersByPID[c.pid] else { continue }
             guard owner.isUserApp else { continue }
-            let key = owner.bundleID ?? "pid:\(owner.pid)"
+            let key = owner.key
             if Self.hiddenBundleIDs.contains(key) { continue }
             let running = c.running
             var entry = grouped[key] ?? (owner, [], false)
@@ -402,6 +433,27 @@ final class AppModel: ObservableObject {
         if isActive != active { isActive = active }
     }
 
+    private func systemDefaultChanged() {
+        // macOS may select a real output on Bluetooth connection or in System Settings.
+        // Adopt that target, then keep audio flowing through Sona for per-app routing.
+        if !restoringSystemOutput, driverConnected, let sona = driver.deviceID,
+           let device = AudioSystem.defaultOutputDevice(), device != sona,
+           let uid = AudioSystem.getString(device, kAudioDevicePropertyDeviceUID),
+           uid != SonaProtocol.deviceUID, AudioSystem.hasOutput(device) {
+            if uid != defaultTargetUID { targetBeforeAutoSwitch = nil }
+            defaultTargetUID = uid
+            defaults.set(uid, forKey: Keys.previousDefault)
+            pushConfig(immediately: true)
+            // A physical selection must remain usable as a recovery path while the
+            // audio service is offline, even though the HAL device still exists.
+            if status?.serviceConnected != false {
+                let result = AudioSystem.setDefaultOutputDevice(sona)
+                if result != noErr { NSLog("Sona: failed to resume virtual output after system default change: \(result)") }
+            }
+        }
+        refreshActive()
+    }
+
     func deviceName(forUID uid: String) -> String {
         outputDevices.first { $0.uid == uid }?.name ?? uid
     }
@@ -410,6 +462,7 @@ final class AppModel: ObservableObject {
 
     func setActive(_ on: Bool) {
         if on {
+            restoringSystemOutput = false
             guard let sona = driver.deviceID else { return }
             if let cur = AudioSystem.defaultOutputDevice(), let uid = AudioSystem.getString(cur, kAudioDevicePropertyDeviceUID),
                uid != SonaProtocol.deviceUID {
@@ -426,6 +479,7 @@ final class AppModel: ObservableObject {
 
     /// Points the system default output back at a real device.
     func restoreSystemOutput() {
+        restoringSystemOutput = true
         let uid = defaultTargetUID.isEmpty ? (defaults.string(forKey: Keys.previousDefault) ?? "") : defaultTargetUID
         if let id = AudioSystem.deviceID(forUID: uid) ?? outputDevices.first?.id {
             AudioSystem.setDefaultOutputDevice(id)
@@ -483,21 +537,9 @@ final class AppModel: ObservableObject {
 
     // MARK: - Config sync
 
-    /// Settings are stored per owner app (e.g. com.apple.Safari), but the driver sees the helper
-    /// processes that actually play audio (e.g. com.apple.WebKit.GPU, pid 566). Expand each owner
-    /// setting into entries the driver can match: the owner key itself plus "pid:<n>" for every
-    /// helper client currently grouped under it.
+    /// Known source PIDs inherit this owner's choices; new app processes start at default.
     private func expandedSettings() -> [String: AppAudioSetting] {
-        var out = appSettings
-        // Keep helper settings while the owner is silent/hidden, so playback resumes with
-        // the saved volume and route rather than briefly reverting to defaults.
-        for client in lastClients {
-            let owner = ProcessOwner.owner(of: client.pid, fallbackBundleID: client.bundleID)
-            guard owner.isUserApp else { continue }
-            let key = owner.bundleID ?? "pid:\(owner.pid)"
-            if let setting = appSettings[key] { out["pid:\(client.pid)"] = setting }
-        }
-        return out
+        routingLifetime.expandedSettings(appSettings, owners: clientOwners)
     }
 
     private func pushConfig(immediately: Bool = false) {
@@ -529,13 +571,16 @@ final class AppModel: ObservableObject {
     private func load() {
         if let data = defaults.data(forKey: Keys.appSettings),
            let decoded = try? JSONDecoder().decode([String: AppAudioSetting].self, from: data) {
-            appSettings = decoded
+            appSettings = AppAudioSetting.persistentSettings(decoded)
         }
         defaultTargetUID = defaults.string(forKey: Keys.defaultTarget) ?? ""
+        persist()
     }
 
     private func persist() {
-        if let data = try? JSONEncoder().encode(appSettings) { defaults.set(data, forKey: Keys.appSettings) }
+        if let data = try? JSONEncoder().encode(AppAudioSetting.persistentSettings(appSettings)) {
+            defaults.set(data, forKey: Keys.appSettings)
+        }
         defaults.set(defaultTargetUID, forKey: Keys.defaultTarget)
     }
 }

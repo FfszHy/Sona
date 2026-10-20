@@ -20,7 +20,7 @@ enum SonaProtocol {
     }
 }
 
-/// One app-level setting as the driver understands it. Persisted by the app, pushed to the driver.
+/// App gains are saved; output choices last only for the owner's current app launch.
 struct AppAudioSetting: Codable, Equatable {
     var volume: Double = 1.0      // legacy linear gain 0...4 (UI slider caps at 1.0)
     var mute: Bool = false
@@ -46,14 +46,29 @@ struct AppAudioSetting: Codable, Equatable {
         volume = try values.decodeIfPresent(Double.self, forKey: .volume) ?? 1.0
         mute = try values.decodeIfPresent(Bool.self, forKey: .mute) ?? false
         targets = try values.decodeIfPresent([String].self, forKey: .targets) ?? []
-        // Older saves used an empty array to mean "follow default". Once the flag is
-        // present, an explicit empty selection must survive relaunch as silence.
+        // Preserve explicit silence in transport. Disk preferences are normalized
+        // with persistentValue so every launch starts following the default output.
         followDefault = try values.decodeIfPresent(Bool.self, forKey: .followDefault) ?? targets.isEmpty
         targetVolumes = try values.decodeIfPresent([String: Double].self, forKey: .targetVolumes) ?? [:]
     }
 
     var isDefault: Bool {
         volume == 1.0 && !mute && followDefault && targets.isEmpty && targetVolumes.isEmpty
+    }
+
+    mutating func resetOutputSelection() {
+        targets = []
+        followDefault = true
+    }
+
+    var persistentValue: AppAudioSetting {
+        var saved = self
+        saved.resetOutputSelection()
+        return saved
+    }
+
+    static func persistentSettings(_ settings: [String: AppAudioSetting]) -> [String: AppAudioSetting] {
+        settings.mapValues(\.persistentValue).filter { !$0.value.isDefault }
     }
 
     func selectedTargetUIDs(defaultTarget: String) -> [String] {
@@ -81,8 +96,8 @@ struct AppAudioSetting: Codable, Equatable {
         var selected = selectedTargetUIDs(defaultTarget: defaultTarget)
         if let index = selected.firstIndex(of: uid) { selected.remove(at: index) }
         else { selected.append(uid) }
-        targets = selected
-        followDefault = false
+        followDefault = selected == [defaultTarget]
+        targets = followDefault ? [] : selected
         // Keep the device's previous volume so deselecting and reselecting restores it.
     }
 
@@ -121,6 +136,38 @@ struct DriverClient: Identifiable, Equatable {
     let played: Bool
 
     var id: Int { clientID }
+}
+
+struct AppProcessInstance: Hashable {
+    let pid: pid_t
+    let launchDate: Date?
+}
+
+/// Audio activity is only for row visibility. Output choices follow the owner's process lifetime.
+struct AppRoutingLifetime {
+    private var instances: [String: Set<AppProcessInstance>] = [:]
+
+    mutating func refresh(owners current: [String: Set<AppProcessInstance>], settings: inout [String: AppAudioSetting]) {
+        for key in Array(settings.keys) {
+            let previous = instances[key] ?? []
+            let live = current[key] ?? []
+            guard live.isEmpty || previous.isDisjoint(with: live) else { continue }
+            settings[key]?.resetOutputSelection()
+            if settings[key]?.isDefault == true { settings.removeValue(forKey: key) }
+        }
+        instances = current
+    }
+
+    func expandedSettings(_ settings: [String: AppAudioSetting], owners: [String: Set<pid_t>]) -> [String: AppAudioSetting] {
+        // New processes must not inherit a previous launch's explicit bundle route
+        // before the App has identified their owner. Only known PIDs receive choices.
+        var expanded = AppAudioSetting.persistentSettings(settings)
+        for (owner, pids) in owners {
+            let setting = settings[owner] ?? AppAudioSetting()
+            for pid in pids { expanded["pid:\(pid)"] = setting }
+        }
+        return expanded
+    }
 }
 
 struct DriverTargetStatus: Equatable {

@@ -320,6 +320,36 @@ void SonaEngineSetOutputLevel(const std::string& uid, bool hasVolume, float volu
 
 // MARK: - Persistence (control queue)
 
+// Output choices belong to the current owner app launch. Keep gains and mute settings,
+// but neither restore routes nor retain transient helper-PID aliases after a restart.
+static CFDictionaryRef SonaConfigWithoutRoutes(CFDictionaryRef config) {
+    if (!config) return nullptr;
+    auto saved = CFDictionaryCreateMutableCopy(nullptr, 0, config);
+    auto apps = CFDictionaryGetValue(config, CFSTR(kSonaConfigKey_Apps));
+    if (apps && CFGetTypeID(apps) == CFDictionaryGetTypeID()) {
+        auto source = (CFDictionaryRef)apps;
+        auto sanitized = CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFIndex count = CFDictionaryGetCount(source);
+        std::vector<const void*> keys(count), values(count);
+        CFDictionaryGetKeysAndValues(source, keys.data(), values.data());
+        for (CFIndex i = 0; i < count; ++i) {
+            if (CFGetTypeID(keys[i]) != CFStringGetTypeID() || CFGetTypeID(values[i]) != CFDictionaryGetTypeID()) continue;
+            const auto key = SonaStdString((CFStringRef)keys[i]);
+            if (key.compare(0, 4, "pid:") == 0) continue;
+            auto setting = CFDictionaryCreateMutableCopy(nullptr, 0, (CFDictionaryRef)values[i]);
+            CFDictionaryRemoveValue(setting, CFSTR(kSonaAppKey_Targets));
+            CFDictionarySetValue(setting, CFSTR(kSonaAppKey_FollowDefault), kCFBooleanTrue);
+            CFDictionaryRemoveValue(setting, CFSTR("routeOwner"));
+            CFDictionaryRemoveValue(setting, CFSTR("playbackSession"));
+            CFDictionarySetValue(sanitized, keys[i], setting);
+            CFRelease(setting);
+        }
+        CFDictionarySetValue(saved, CFSTR(kSonaConfigKey_Apps), sanitized);
+        CFRelease(sanitized);
+    }
+    return saved;
+}
+
 static void SonaSaveState() {
     if (!gBoundDefaultUID.empty()) gOutputLevels[gBoundDefaultUID] = {gMasterVolume.load(), gMasterMute.load()};
     if (gStateFile.empty()) return;
@@ -337,7 +367,8 @@ static void SonaSaveState() {
     CFDictionarySetValue(root, CFSTR("outputLevels"), levels);
     {
         std::lock_guard<std::recursive_mutex> lock(gStateMutex);
-        if (gConfig) CFDictionarySetValue(root, CFSTR("config"), gConfig);
+        auto config = SonaConfigWithoutRoutes(gConfig);
+        if (config) { CFDictionarySetValue(root, CFSTR("config"), config); CFRelease(config); }
     }
     CFRelease(levels);
     CFDataRef data = CFPropertyListCreateData(nullptr, root, kCFPropertyListBinaryFormat_v1_0, 0, nullptr);
@@ -1149,7 +1180,10 @@ void SonaEngineStart(dispatch_queue_t controlQueue, const SonaEnginePushes& push
     auto config = state ? CFDictionaryGetValue(state, CFSTR("config")) : nullptr;
     if (config && CFGetTypeID(config) == CFDictionaryGetTypeID()) {
         SonaLog("restored persisted config");
-        SonaApplyConfig((CFDictionaryRef)config, false);
+        auto sanitized = SonaConfigWithoutRoutes((CFDictionaryRef)config);
+        SonaApplyConfig(sanitized, false);
+        CFRelease(sanitized);
+        SonaScheduleSave();
     } else {
         SonaReconcileTargets();
     }

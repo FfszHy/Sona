@@ -97,7 +97,7 @@ final class DriverConnection {
         }
     }
 
-    /// Pushes the full configuration. The driver persists it in HAL plug-in storage.
+    /// Pushes current app routes and gains; only gains survive an app relaunch.
     @MainActor
     func pushConfig(defaultTarget: String, apps: [String: AppAudioSetting],
                     supportsAppTargetVolumes: Bool, connectedTargetUIDs: Set<String>) async -> OSStatus {

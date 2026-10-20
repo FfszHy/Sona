@@ -27,6 +27,18 @@ enum ProcessOwner {
         let name: String
         let icon: NSImage?
         let isUserApp: Bool
+        let launchDate: Date?
+
+        var key: String { bundleID ?? "pid:\(pid)" }
+        var instance: AppProcessInstance { AppProcessInstance(pid: pid, launchDate: launchDate) }
+    }
+
+    static func userApp(_ app: NSRunningApplication) -> Owner? {
+        guard !app.isTerminated, app.activationPolicy != .prohibited,
+              let url = app.bundleURL, url.pathExtension == "app",
+              !url.path.hasPrefix("/System/Library/"), let name = app.localizedName else { return nil }
+        return Owner(pid: app.processIdentifier, bundleID: app.bundleIdentifier, name: name,
+                     icon: app.icon, isUserApp: true, launchDate: app.launchDate)
     }
 
     /// Only user applications, including their responsible WebKit/Chrome helper processes.
@@ -35,16 +47,12 @@ enum ProcessOwner {
         let ownerPID = responsiblePID(pid)
         for candidate in [ownerPID, pid] {
             guard let app = NSRunningApplication(processIdentifier: candidate),
-                  app.activationPolicy != .prohibited,
-                  let url = app.bundleURL, url.pathExtension == "app",
-                  !url.path.hasPrefix("/System/Library/"),
-                  let name = app.localizedName else { continue }
-            return Owner(pid: candidate, bundleID: app.bundleIdentifier, name: name,
-                         icon: app.icon, isUserApp: true)
+                  let owner = userApp(app) else { continue }
+            return owner
         }
         let name = processName(ownerPID) ?? processName(pid) ?? fallbackBundleID ?? "pid \(pid)"
         return Owner(pid: ownerPID, bundleID: fallbackBundleID, name: name, icon: nil,
-                     isUserApp: false)
+                     isUserApp: false, launchDate: nil)
     }
 
     static func processName(_ pid: pid_t) -> String? {

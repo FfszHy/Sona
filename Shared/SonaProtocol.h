@@ -29,11 +29,14 @@ enum {
     // Missing followDefault preserves legacy semantics: empty targets follows default.
     // Explicit followDefault=false with empty/unavailable targets is silent, without fallback.
     // Each selected route uses targetVolumes[UID] or volume, then device output gain.
-    // Reading it back returns the last dictionary the driver accepted (or persisted).
+    // Output choices apply to known PIDs for the owner's current app launch;
+    // bundle-key and saved config follow default so a new process cannot inherit old choices.
+    // Reading it back returns the last dictionary the driver accepted.
     kSonaProperty_Config    = 'sncf',
 
     // Read-only. CFArray of CFDictionary:
-    //   clientID : CFNumber, pid : CFNumber, bundleID : CFString (optional), key : CFString, running : CFBoolean
+    //   clientID : CFNumber, pid : CFNumber, bundleID : CFString (optional), key : CFString,
+    //   running : CFBoolean
     // running means non-silent source samples within 300 ms (before Sona gain/mute).
     // Notifications cover client changes and signal activity transitions, checked every 50 ms.
     kSonaProperty_Clients   = 'sncl',

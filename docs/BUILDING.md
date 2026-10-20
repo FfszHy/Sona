@@ -26,7 +26,13 @@ Installing the driver writes to `/Library/Audio/Plug-Ins/HAL` and restarts `core
 
 ## Using the current interface
 
-Click the menu bar icon to open the sound panel. The top sound card selects the default physical output and controls device volumes. Playing app cards show output-device buttons; selecting a device reveals its independent app volume slider. Apps initially follow the default output, and can be routed to one or more chosen devices. Clearing all devices silences that app; an explicitly selected device becoming unavailable does not send its audio to the default speakers.
+Click the menu bar icon to open the sound panel. The top sound card selects the default physical output and controls device volumes. Playing app cards show output-device buttons; selecting a device reveals its independent app volume slider. Apps follow the current default physical output until the user chooses another output, multiple outputs or no output. Selecting only the current default device resumes following the default.
+
+Manual choices last for the owner app's current process lifetime. Pauses of any duration, silent source audio, audio-client recreation within the same live process and stopping or restarting global audio IO preserve the selection. A newly created helper process inherits the owner's choice after mapping; it initially follows the default. Quitting and relaunching that app, or restarting Sona, starts it following the current default again. Output choices are not saved to disk; app volumes, mute settings and per-device volume levels remain saved. Clearing all devices silences the app until the user selects an output again or restarts the app or Sona. An explicitly selected device becoming unavailable does not send its audio to the default speakers.
+
+Apps following the default switch their ongoing playback as soon as the default physical output changes, including Bluetooth hotplug or a change in macOS Sound settings. Manual choices of another output, multiple outputs or no output remain as selected. Sona remains the virtual macOS output while active: changes made in macOS Sound settings update Sona's physical target, then Sona restores its virtual output so per-app controls continue to apply.
+
+Update both the App and audio service to use this routing behavior.
 
 Sona activates its virtual output automatically when the driver connects. There is no main on/off switch in the current interface. Right-click the menu bar icon for login launch, automatic switching to newly connected devices and Quit. Normal exit attempts to restore the selected physical output.
 

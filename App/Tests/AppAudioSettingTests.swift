@@ -20,7 +20,7 @@ struct AppAudioSettingTests {
         let missingFields = try decode("{}")
         assert(missingFields == AppAudioSetting())
 
-        // Deselecting the last inherited output persists silence instead of becoming default.
+        // Deselecting the last inherited output stays silent during this app launch.
         var selection = AppAudioSetting()
         assert(selection.isDefault)
         selection.toggleTarget("speaker", defaultTarget: "speaker")
@@ -39,6 +39,8 @@ struct AppAudioSettingTests {
         dualOutput.setVolume(0.8, for: "headphones", defaultTarget: "speaker")
         assert(dualOutput.volume(for: "speaker") == 0.3 && dualOutput.volume(for: "headphones") == 0.8)
         dualOutput.toggleTarget("headphones", defaultTarget: "speaker")
+        assert(dualOutput.followDefault && dualOutput.targets.isEmpty)
+        assert(dualOutput.selectedTargetUIDs(defaultTarget: "new-default") == ["new-default"])
         dualOutput.toggleTarget("headphones", defaultTarget: "speaker")
         assert(dualOutput.volume(for: "headphones") == 0.8)
         dualOutput.setVolume(0, for: "speaker", defaultTarget: "speaker")
@@ -69,6 +71,56 @@ struct AppAudioSettingTests {
         assert(plist["volume"] as? Double == 1 && plist["mute"] as? Bool == false)
         let savedDualOutput = try decoder.decode(AppAudioSetting.self, from: encoder.encode(dualOutput))
         assert(savedDualOutput == dualOutput)
+
+        // Disk snapshots and old preferences retain gains, never output selections.
+        let preferences = AppAudioSetting.persistentSettings([
+            "browser": dualOutput, "legacy": legacyExplicit,
+            "silent": savedSilence, "muted": muted,
+        ])
+        let restored = try decoder.decode([String: AppAudioSetting].self, from: encoder.encode(preferences))
+        assert(restored["browser"]?.selectedTargetUIDs(defaultTarget: "new-default") == ["new-default"])
+        assert(restored["browser"]?.targetVolumes == dualOutput.targetVolumes)
+        assert(restored["legacy"]?.volume == 0.4 && restored["legacy"]?.followDefault == true)
+        assert(restored["silent"] == nil)
+        assert(restored["muted"]?.targetVolumes == muted.targetVolumes)
+        let savedMute = AppAudioSetting(volume: 0.6, mute: true, targets: ["old"]).persistentValue
+        assert(savedMute.mute && savedMute.volume == 0.6 && savedMute.followDefault)
+
+        let browser = AppProcessInstance(pid: 10, launchDate: Date(timeIntervalSince1970: 100))
+        let reopened = AppProcessInstance(pid: 20, launchDate: Date(timeIntervalSince1970: 200))
+        var lifetime = AppRoutingLifetime()
+        var liveSettings = ["browser": restored["browser"]!]
+        lifetime.refresh(owners: ["browser": [browser]], settings: &liveSettings)
+        liveSettings["browser"]?.toggleTarget("headphones", defaultTarget: "speaker")
+        assert(liveSettings["browser"]?.targets == ["speaker", "headphones"])
+
+        // Audio client removal, silence and elapsed time do not change a live owner's identity.
+        lifetime.refresh(owners: ["browser": [browser]], settings: &liveSettings)
+        assert(liveSettings["browser"]?.targets == ["speaker", "headphones"])
+        let expanded = lifetime.expandedSettings(liveSettings, owners: ["browser": [10, 11]])
+        assert(expanded["browser"]?.followDefault == true && expanded["browser"]?.targets == [])
+        assert(expanded["pid:10"] == liveSettings["browser"] && expanded["pid:11"] == liveSettings["browser"])
+        assert(expanded["browser"]?.targetVolumes == dualOutput.targetVolumes)
+        let newHelper = lifetime.expandedSettings(liveSettings, owners: ["browser": [10, 12]])
+        assert(newHelper["pid:11"] == nil && newHelper["pid:12"] == liveSettings["browser"])
+
+        // Explicit empty selection also survives pauses; source activity never reopens audio.
+        liveSettings["browser"] = AppAudioSetting(volume: 0.6, targets: [], followDefault: false,
+                                                  targetVolumes: dualOutput.targetVolumes)
+        lifetime.refresh(owners: ["browser": [browser]], settings: &liveSettings)
+        assert(liveSettings["browser"]?.followDefault == false && liveSettings["browser"]?.targets == [])
+        lifetime.refresh(owners: [:], settings: &liveSettings)
+        assert(liveSettings["browser"]?.followDefault == true && liveSettings["browser"]?.targets == [])
+        assert(liveSettings["browser"]?.targetVolumes == dualOutput.targetVolumes)
+        lifetime.refresh(owners: ["browser": [reopened]], settings: &liveSettings)
+        liveSettings["browser"]?.toggleTarget("headphones", defaultTarget: "speaker")
+        // A missed quit notification still resets the route when the owner process changes.
+        lifetime.refresh(owners: ["browser": [browser]], settings: &liveSettings)
+        assert(liveSettings["browser"]?.followDefault == true)
+        liveSettings["browser"]?.toggleTarget("headphones", defaultTarget: "speaker")
+        let reusedPID = AppProcessInstance(pid: 10, launchDate: Date(timeIntervalSince1970: 300))
+        lifetime.refresh(owners: ["browser": [reusedPID]], settings: &liveSettings)
+        assert(liveSettings["browser"]?.followDefault == true)
 
         // Unknown/old services get a safe legacy mute for empty or unavailable routes;
         // the stored preferences and the new-service payload remain unchanged.
@@ -124,6 +176,6 @@ struct AppAudioSettingTests {
         unsupported.supportsAppTargetVolumes = false
         assert(session.shouldReplayConfig(after: unsupported))
 
-        print("App routing tests passed: migration, explicit silence, independent gains, route toggles, muted migration, property-list schema, old-service compatibility, service-session replay")
+        print("App routing tests passed: volume-only preferences, owner app lifetime, PID-only selections, default following, explicit silence, independent gains, old-service compatibility, service-session replay")
     }
 }
