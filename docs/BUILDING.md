@@ -102,4 +102,4 @@ Check diagnostic output for app names, device identifiers and other personal inf
 make clean
 ```
 
-Removes native build outputs, release staging, test binaries and Python bytecode. Source, application icon design files and local configuration remain in place.
+Removes native build outputs, release packages and staging, test binaries and Python bytecode. Source, application icon design files and local configuration remain in place. Run `make release` to build a fresh installer afterward.
