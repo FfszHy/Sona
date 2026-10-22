@@ -29,14 +29,7 @@ Sona 通过虚拟音频输出与独立音频服务处理声音，不申请麦克
 
 [下载 Sona 0.6.2](https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg) · [版本说明](https://github.com/FfszHy/Sona/releases/tag/v0.6.2)
 
-此版本未使用 Developer ID 签名，也未经过 Apple 公证。如果 macOS 拦截安装器，请在「系统设置 → 隐私与安全性」中选择「仍要打开」。将 [SHA-256 校验文件](https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg.sha256)与安装包下载到同一目录，安装前执行校验：
-
-```sh
-cd ~/Downloads
-shasum -a 256 -c Sona-0.6.2.pkg.sha256
-```
-
-仅在显示 `Sona-0.6.2.pkg: OK` 后继续安装。安装包会更新 App、音频服务与驱动，并短暂中断音频。
+此版本未使用 Developer ID 签名，也未经过 Apple 公证。安装帮助见[版本说明](https://github.com/FfszHy/Sona/releases/tag/v0.6.2)。
 
 1. 使用管理员权限运行安装包，然后打开 Sona。
 2. 点击菜单栏图标，再点击「声音」右侧的设备按钮，选择默认输出。

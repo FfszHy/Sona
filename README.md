@@ -29,14 +29,7 @@ Sona uses a virtual audio output and a separate audio service. It does not reque
 
 [Download Sona 0.6.2](https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg) · [Release notes](https://github.com/FfszHy/Sona/releases/tag/v0.6.2)
 
-This release is not Developer ID signed or notarized. If macOS blocks the installer, use **Open Anyway** in System Settings → Privacy & Security. Download the [SHA-256 checksum](https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg.sha256) alongside the package and verify it before installing:
-
-```sh
-cd ~/Downloads
-shasum -a 256 -c Sona-0.6.2.pkg.sha256
-```
-
-Continue only if verification reports `Sona-0.6.2.pkg: OK`. Installation updates the app, audio service and driver, and briefly interrupts audio.
+This release is not Developer ID signed or notarized. See the [release notes](https://github.com/FfszHy/Sona/releases/tag/v0.6.2) for installation help.
 
 1. Run the installer with administrator access, then open Sona.
 2. Click the menu bar icon and choose your default output with the device button beside **声音** (Sound).
