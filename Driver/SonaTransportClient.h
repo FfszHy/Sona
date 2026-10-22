@@ -8,7 +8,7 @@
 //    - The realtime IO thread only calls acquire()/release() and the ring producers; it never
 //      blocks, allocates or touches XPC. A missing service is a normal state: acquire() returns
 //      null and the caller drops the block.
-//    - Mapping retirement follows ARCHITECTURE.md: publish the new mapping, wait (off the
+//    - Mapping retirement: publish the new mapping, wait (off the
 //      realtime thread) until the IO thread has confirmed it no longer references the old one,
 //      then unmap.
 //

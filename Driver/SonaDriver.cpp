@@ -13,7 +13,7 @@
 //  HAL calls once per client before mixing, the client's PCM is copied into that client's ring
 //  in the region shared with Sona Audio Service and the buffer is silenced so the host mix
 //  carries nothing. Gain, routing, mixing, resampling and the physical devices live in the
-//  service. Nothing here calls the Core Audio client HAL; see ../ARCHITECTURE.md.
+//  service. Nothing here calls the Core Audio client HAL.
 //
 //  The app-facing custom properties (config, clients, status, output level) remain on this
 //  device: writes are forwarded to the service, reads return the last snapshot it pushed.
@@ -49,7 +49,7 @@ enum {
 
 static const UInt32  kDevice_RingBufferSize = 16384;   // zero timestamp period (frames)
 static const UInt32  kDevice_Channels       = 2;
-static const UInt32  kDevice_LatencyFrames  = 2048;    // service sink fill; see ARCHITECTURE.md latency notes
+static const UInt32  kDevice_LatencyFrames  = 2048;    // service sink fill
 static const Float32 kVolume_MinDB          = -96.0f;
 static const Float32 kVolume_MaxDB          = 0.0f;
 static const UInt32  kMaxClients            = kSonaTransportMaxClients;

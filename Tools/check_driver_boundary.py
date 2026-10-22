@@ -1,8 +1,8 @@
 """Reject direct client HAL imports from every architecture of a driver Mach-O.
 
 This is a necessary production gate, not a proof of runtime safety. Dependency
-wrappers and dynamically resolved calls also violate ARCHITECTURE.md and require
-review. No grandfathered imports or prototype allowlist are accepted here.
+wrappers and dynamically resolved client HAL calls also violate this boundary
+and require review. No grandfathered imports or prototype allowlist are accepted here.
 """
 
 import re
@@ -38,7 +38,7 @@ def main(argv):
         print("FAIL: AudioServerPlugIn imports client HAL APIs:", file=sys.stderr)
         for symbol in violations:
             print(f"  {symbol}", file=sys.stderr)
-        print("Move these calls outside the plug-in host; see ARCHITECTURE.md.",
+        print("Move these calls into Sona Audio Service, outside the plug-in host.",
               file=sys.stderr)
         return 1
     print("PASS: no direct client HAL imports in any driver architecture.")

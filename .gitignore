@@ -22,3 +22,9 @@ __pycache__/
 *.p12
 *.key
 *.log
+
+# Local project documentation
+/docs/
+/ARCHITECTURE.md
+/CHANGELOG.md
+/CONTRIBUTING.md

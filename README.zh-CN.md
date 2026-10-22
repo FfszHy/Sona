@@ -4,7 +4,7 @@
 
 在 macOS 菜单栏，独立控制每个应用的音量与音频输出。
 
-[English](README.md) · [构建与安装](docs/BUILDING.md) · [更新记录](CHANGELOG.md)
+[English](README.md) · [构建与安装](#从源码构建) · [版本发布](https://github.com/FfszHy/Sona/releases)
 
 https://github.com/user-attachments/assets/e753e580-f469-4e87-b770-f184ebb99b14
 
@@ -25,11 +25,18 @@ Sona 通过虚拟音频输出与独立音频服务处理声音，不申请麦克
 
 ## 开始使用
 
-**0.6.2 预览版 · macOS 26 或更高版本 · Apple Silicon**
+**Sona 0.6.2 · macOS 26 或更高版本 · Apple Silicon**
 
 [下载 Sona 0.6.2](https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg) · [版本说明](https://github.com/FfszHy/Sona/releases/tag/v0.6.2)
 
-此预览版未使用 Developer ID 签名，也未经过 Apple 公证。如果 macOS 拦截安装器，请在「系统设置 → 隐私与安全性」中选择「仍要打开」。校验安装包与详细步骤见[安装指南](docs/BUILDING.md#preview-installer)。
+此版本未使用 Developer ID 签名，也未经过 Apple 公证。如果 macOS 拦截安装器，请在「系统设置 → 隐私与安全性」中选择「仍要打开」。将 [SHA-256 校验文件](https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg.sha256)与安装包下载到同一目录，安装前执行校验：
+
+```sh
+cd ~/Downloads
+shasum -a 256 -c Sona-0.6.2.pkg.sha256
+```
+
+仅在显示 `Sona-0.6.2.pkg: OK` 后继续安装。安装包会更新 App、音频服务与驱动，并短暂中断音频。
 
 1. 使用管理员权限运行安装包，然后打开 Sona。
 2. 点击菜单栏图标，再点击「声音」右侧的设备按钮，选择默认输出。
@@ -41,25 +48,38 @@ Sona 通过虚拟音频输出与独立音频服务处理声音，不申请麦克
 
 ## 从源码构建
 
-需要支持 macOS 26 SDK 的 Xcode 或命令行工具，以及 `python3`。
+需要支持 macOS 26 SDK 的 Xcode 或命令行工具，以及 `python3`。安装音频服务和驱动需要管理员权限。
 
 ```sh
 git clone https://github.com/FfszHy/Sona.git
 cd Sona
 make
+sudo make install-service
+sudo make install-driver
+make run
 ```
 
-App 生成于 `App/build/Sona.app`。启动前需安装音频服务和驱动，完整步骤见[构建与安装指南](docs/BUILDING.md)。
+App 生成于 `App/build/Sona.app`，`make run` 会打开该副本；也可执行 `make install-app` 将其复制到 `/Applications`。本地构建使用 ad-hoc 签名。安装驱动会重启 `coreaudiod`，短暂中断音频。
+
+## 卸载
+
+从菜单栏图标退出 Sona，并确认 macOS 已切换到物理输出设备。使用安装包安装的版本可执行：
+
+```sh
+sudo "/Library/Application Support/Sona/uninstall.sh"
+```
+
+添加 `--purge` 可一并删除已保存的设置。源码安装的版本需执行 `sudo make uninstall-driver` 和 `sudo make uninstall-service`；如果使用过 `make install-app`，还需删除 `/Applications/Sona.app`。
 
 ## 使用范围
 
 Sona 仅处理发送到其虚拟输出的应用音频，不提供麦克风路由。多设备播放不保证采样级同步。
 
-设备兼容性、睡眠唤醒、热插拔和端到端延迟仍需实机验证，已验证范围见[兼容性与测试记录](docs/COMPATIBILITY.md)。
+设备兼容性、睡眠唤醒、热插拔和端到端延迟仍需实机验证。
 
 ## 开发
 
-[架构](ARCHITECTURE.md) · [贡献指南](CONTRIBUTING.md) · [构建、诊断与卸载](docs/BUILDING.md) · [发布检查](docs/RELEASE-CHECKLIST.md)
+执行 `make test-all` 运行自动检查，或执行 `make release` 在 `build/release/` 生成安装包与校验文件。自动检查不能代替实机安装、升级和卸载验证。历史版本见 [GitHub Releases](https://github.com/FfszHy/Sona/releases)。
 
 ## 许可证
 

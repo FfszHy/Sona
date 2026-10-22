@@ -4,7 +4,7 @@
 
 Control each app's volume and audio outputs from the macOS menu bar.
 
-[简体中文](README.zh-CN.md) · [Build & install](docs/BUILDING.md) · [Changelog](CHANGELOG.md)
+[简体中文](README.zh-CN.md) · [Build & install](#build-from-source) · [Releases](https://github.com/FfszHy/Sona/releases)
 
 https://github.com/user-attachments/assets/e753e580-f469-4e87-b770-f184ebb99b14
 
@@ -25,11 +25,18 @@ Sona uses a virtual audio output and a separate audio service. It does not reque
 
 ## Get started
 
-**0.6.2 Preview · macOS 26 or later · Apple Silicon**
+**Sona 0.6.2 · macOS 26 or later · Apple Silicon**
 
 [Download Sona 0.6.2](https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg) · [Release notes](https://github.com/FfszHy/Sona/releases/tag/v0.6.2)
 
-The preview is not Developer ID signed or notarized. If macOS blocks the installer, use **Open Anyway** in System Settings → Privacy & Security. See the [installation guide](docs/BUILDING.md#preview-installer) for checksum verification and details.
+This release is not Developer ID signed or notarized. If macOS blocks the installer, use **Open Anyway** in System Settings → Privacy & Security. Download the [SHA-256 checksum](https://github.com/FfszHy/Sona/releases/download/v0.6.2/Sona-0.6.2.pkg.sha256) alongside the package and verify it before installing:
+
+```sh
+cd ~/Downloads
+shasum -a 256 -c Sona-0.6.2.pkg.sha256
+```
+
+Continue only if verification reports `Sona-0.6.2.pkg: OK`. Installation updates the app, audio service and driver, and briefly interrupts audio.
 
 1. Run the installer with administrator access, then open Sona.
 2. Click the menu bar icon and choose your default output with the device button beside **声音** (Sound).
@@ -41,25 +48,38 @@ Right-click the menu bar icon for login launch, automatic device switching and Q
 
 ## Build from source
 
-Requires Xcode or Command Line Tools with the macOS 26 SDK, plus `python3`.
+Requires Xcode or Command Line Tools with the macOS 26 SDK, plus `python3`. Installing the audio service and driver requires administrator access.
 
 ```sh
 git clone https://github.com/FfszHy/Sona.git
 cd Sona
 make
+sudo make install-service
+sudo make install-driver
+make run
 ```
 
-The app is built at `App/build/Sona.app`. Install the audio service and driver before launching it; follow the [build and installation guide](docs/BUILDING.md).
+The app is built at `App/build/Sona.app`; `make run` opens that copy. Optionally use `make install-app` to copy it to `/Applications`. Local builds use ad-hoc signatures. Driver installation restarts `coreaudiod`, briefly interrupting audio.
+
+## Uninstall
+
+Quit Sona from its menu bar icon and confirm that macOS is using a physical output device. For a package installation, run:
+
+```sh
+sudo "/Library/Application Support/Sona/uninstall.sh"
+```
+
+Add `--purge` to also remove saved settings. For a source installation, run `sudo make uninstall-driver` and `sudo make uninstall-service`; remove `/Applications/Sona.app` if you used `make install-app`.
 
 ## Scope
 
 Sona controls apps that send audio to its virtual output. It provides output routing, not microphone routing. Multi-device playback does not guarantee sample-accurate synchronization.
 
-Hardware compatibility, sleep/wake, hot-plug behavior and end-to-end latency remain subject to on-device testing. See [compatibility and test records](docs/COMPATIBILITY.md) for the verified scope.
+Hardware compatibility, sleep/wake, hot-plug behavior and end-to-end latency remain subject to on-device testing.
 
 ## Development
 
-[Architecture](ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Build, diagnostics & uninstall](docs/BUILDING.md) · [Release checks](docs/RELEASE-CHECKLIST.md)
+Run `make test-all` for automated checks or `make release` to build an installer and checksum in `build/release/`. Automated checks do not replace on-device installation, upgrade and uninstall testing. See [GitHub Releases](https://github.com/FfszHy/Sona/releases) for release history.
 
 ## License
 
