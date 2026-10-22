@@ -6,6 +6,10 @@
 
 [English](README.md) · [构建与安装](docs/BUILDING.md) · [更新记录](CHANGELOG.md)
 
+https://github.com/user-attachments/assets/e753e580-f469-4e87-b770-f184ebb99b14
+
+发布片 · 26 秒 · 无声。原生界面录屏与创意场景合成。
+
 <img src="pic/sona-menu-bar.png" alt="Sona 在 macOS 上的实际运行界面，顶部为声音音量控制，下方为 Safari 浏览器与网易云音乐的独立音量控制。" width="720" />
 
 实际应用截图，由项目作者提供。
