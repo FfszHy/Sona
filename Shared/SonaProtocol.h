@@ -10,7 +10,7 @@
 #ifndef SonaProtocol_h
 #define SonaProtocol_h
 
-#define kSonaDriverVersion      "0.6.2"
+#define kSonaDriverVersion      "0.6.3"
 #define kSonaDriverBundleID     "com.sona.driver"
 #define kSonaDeviceUID          "com.sona.driver.device"
 #define kSonaDeviceModelUID     "com.sona.driver.model"
