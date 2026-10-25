@@ -58,11 +58,6 @@ public:
 
     SonaStereoRing ring;
 
-    // Per-cycle accumulator for clients explicitly routed to this target. Touched only by the
-    // virtual device IO thread between ProcessOutput and WriteMix of the same cycle.
-    float    accum[kMaxFramesPerCycle * 2] = {};
-    bool     accumDirty = false;
-
     // Consumer-side resampler state (IOProc thread only).
     void render(AudioBufferList* out, const AudioTimeStamp* outputTime = nullptr);
 

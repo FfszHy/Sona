@@ -68,6 +68,7 @@ final class AppModel: ObservableObject {
     private var muteListener: AudioObjectPropertyListenerBlock?
     private var listenedDevice: AudioObjectID?
     private let defaults = UserDefaults.standard
+    private lazy var preferenceSaver = PreferenceSaver { [weak self] in self?.writePreferences() }
 
     /// True while any visible app is playing; drives the menu bar icon animation.
     var anyPlaying: Bool { apps.contains(where: \.running) }
@@ -509,15 +510,18 @@ final class AppModel: ObservableObject {
     }
 
     func setAppEditing(_ editing: Bool, for _: String) {
-        if !editing { pushConfig(immediately: true) }
+        if !editing {
+            flushPreferences()
+            pushConfig(immediately: true)
+        }
     }
 
     func update(_ key: String, _ change: (inout AppAudioSetting) -> Void) {
         var s = setting(for: key)
         change(&s)
+        guard s != setting(for: key) else { return }
         if s.isDefault { appSettings.removeValue(forKey: key) } else { appSettings[key] = s }
-        NSLog("Sona: update \(key) -> volume=\(s.volume) mute=\(s.mute) followDefault=\(s.followDefault) targets=\(s.targets) targetVolumes=\(s.targetVolumes)")
-        persist()
+        persist(immediately: false)
         pushConfig()
     }
 
@@ -577,7 +581,13 @@ final class AppModel: ObservableObject {
         persist()
     }
 
-    private func persist() {
+    func flushPreferences() { preferenceSaver.flush() }
+
+    private func persist(immediately: Bool = true) {
+        preferenceSaver.request(immediately: immediately)
+    }
+
+    private func writePreferences() {
         if let data = try? JSONEncoder().encode(AppAudioSetting.persistentSettings(appSettings)) {
             defaults.set(data, forKey: Keys.appSettings)
         }

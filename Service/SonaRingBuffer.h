@@ -47,17 +47,30 @@ public:
     // Writes up to `frames` stereo frames scaled by `gain`. Frames that do not fit are dropped
     // so latency stays bounded when the consumer stalls.
     uint32_t write(const float* interleaved, uint32_t frames, float gain) {
-        uint32_t requested = frames;
-        frames = std::min(frames, space());
+        return write(interleaved, frames, nullptr, 0, gain);
+    }
+
+    // One logical write from a wrapped accumulator, without an intermediate PCM copy.
+    uint32_t write(const float* first, uint32_t firstFrames, const float* second, uint32_t secondFrames, float gain) {
+        const uint32_t requested = firstFrames + secondFrames;
+        const uint32_t frames = std::min(requested, space());
         if (frames < requested) mDiscontinuities.fetch_add(1, std::memory_order_release);
         mBurst.store(requested, std::memory_order_relaxed);
         uint64_t w = mWrite.load(std::memory_order_relaxed);
-        for (uint32_t i = 0; i < frames; ++i) {
-            uint32_t idx = (uint32_t)((w + i) & kMask) * 2;
-            mData[idx]     = interleaved[i * 2]     * gain;
-            mData[idx + 1] = interleaved[i * 2 + 1] * gain;
-        }
-        mWrite.store(w + frames, std::memory_order_release);
+        auto copy = [&](const float* source, uint32_t count) {
+            while (count) {
+                const uint32_t index = uint32_t(w & kMask);
+                const uint32_t chunk = std::min(count, kCapacityFrames - index);
+                float* dest = mData + index * 2;
+                if (gain == 1.0f) std::memcpy(dest, source, chunk * 2 * sizeof(float));
+                else for (uint32_t i = 0; i < chunk * 2; ++i) dest[i] = source[i] * gain;
+                w += chunk; source += chunk * 2; count -= chunk;
+            }
+        };
+        const uint32_t firstCount = std::min(frames, firstFrames);
+        copy(first, firstCount);
+        copy(second, frames - firstCount);
+        mWrite.store(w, std::memory_order_release);
         return frames;
     }
 

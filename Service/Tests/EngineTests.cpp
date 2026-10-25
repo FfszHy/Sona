@@ -8,6 +8,8 @@
 #include <map>
 #include <tuple>
 #include <cstdio>
+#include <memory>
+#include <thread>
 #include <unistd.h>
 
 using Key = std::tuple<AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyElement>;
@@ -96,6 +98,67 @@ int main() {
     gPushes.clients = [](void*, CFArrayRef) { ++clientPushes; };
     gPushes.status = [](void*, CFDictionaryRef) { ++statusPushes; };
     gPushes.master = [](void*, float v, bool m) { ++masterPushes; pushedMasterVolume = v; pushedMasterMute = m; };
+
+    // ---- A two-span write is one producer burst, even when source and destination wrap.
+    {
+        auto ring = std::make_unique<SonaStereoRing>();
+        std::vector<float> silence(SonaStereoRing::kCapacityFrames * 2);
+        ring->write(silence.data(), SonaStereoRing::kCapacityFrames - 3, 1);
+        ring->consume(SonaStereoRing::kCapacityFrames - 3);
+        float first[14], second[10];
+        for (int i = 0; i < 14; ++i) first[i] = float(i + 1);
+        for (int i = 0; i < 10; ++i) second[i] = float(i + 15);
+        assert(ring->write(first, 7, second, 5, 0.25f) == 12);
+        auto input = ring->readView();
+        assert(input.available == 12 && input.burst == 12 && input.discontinuities == 0);
+        for (uint32_t i = 0; i < 12; ++i) {
+            float l, r; input.sample(i, l, r);
+            assert(l == (2 * i + 1) * 0.25f && r == (2 * i + 2) * 0.25f);
+        }
+        ring->consume(12);
+        for (uint32_t space : {2u, 9u}) {
+            ring->write(silence.data(), SonaStereoRing::kCapacityFrames - space, 1);
+            const auto before = ring->readView().discontinuities;
+            assert(ring->write(first, 7, second, 5, 1) == space);
+            input = ring->readView();
+            assert(input.available == SonaStereoRing::kCapacityFrames && input.burst == 12);
+            assert(input.discontinuities == before + 1);
+            for (uint32_t i = 0; i < space; ++i) {
+                float l, r; input.sample(SonaStereoRing::kCapacityFrames - space + i, l, r);
+                assert(l == 2 * i + 1 && r == 2 * i + 2);
+            }
+            ring->consume(input.available);
+        }
+    }
+
+    // ---- Idle scheduling: no region / expired drain can park, starts cannot lose a wakeup.
+    {
+        void* region = nullptr;
+        assert(posix_memalign(&region, 4096, kSonaTransportRegionSize) == 0);
+        SonaTransportInitRegion(region, 1);
+        gIORunning = false; gMixerDrainUntil = 0;
+        assert(!SonaMixerHasWork(mach_absolute_time()));
+        SonaEngineAttachRegion(region, 1);
+        assert(!SonaMixerHasWork(mach_absolute_time()));
+        std::atomic<bool> entered{false}, awake{false};
+        std::thread waiter([&] { entered = true; SonaMixerWaitForWork(); awake = true; });
+        while (!entered.load()) std::this_thread::yield();
+        usleep(10000);
+        assert(!awake.load() && !(gMixerPass.load() & 1));
+        SonaEngineSetIORunning(true);
+        waiter.join();
+        assert(awake.load() && SonaMixerHasWork(mach_absolute_time()));
+        // A start published before the wait is also observed without another signal.
+        SonaMixerWaitForWork();
+        SonaEngineSetIORunning(false);
+        const auto deadline = gMixerDrainUntil.load();
+        assert(SonaMixerHasWork(deadline - 1));
+        assert(!SonaMixerHasWork(deadline));
+        assert(SonaEngineRegionRetired(SonaEngineDetachRegion()));
+        assert(!SonaMixerHasWork(mach_absolute_time()));
+        gMixResetRequested = 0;
+        free(region);
+    }
 
     // ---- Config: volume-only updates must not enter HAL device reconciliation.
     auto initialConfig = configFor("");
@@ -450,6 +513,33 @@ int main() {
         gTargets[0].ring.sample(127, l, r); assert(std::fabs(l - 0.25f) < 1e-6f);   // 0.5 × gain 0.5, to the last frame
         SonaMixOnce(region, hostAt(1000 + 4096));          // nothing is owed: no silence is invented
         assert(gTargets[0].ring.available() == 128);
+
+        // A commit spanning accumulator wrap writes one burst directly into the ring.
+        const double wrapStart = kMixWindowFrames - 32;
+        SonaMixReset(wrapStart);
+        gTargets[0].ring.flush(); gTargets[1].ring.flush();
+        float pcm[64 * 2]; for (auto& s : pcm) s = 0.75f;
+        SonaTransportReadBlock block = {}; block.desc.frames = 64;
+        block.first = pcm; block.firstFrames = 64;
+        SonaMixAccumulate(1, wrapStart, 0, block, 1);
+        SonaMixCommit(1, wrapStart + 64);
+        assert(gTargets[1].ring.available() == 64 && gTargets[1].ring.readView().burst == 64);
+        for (uint32_t f = 0; f < 64; ++f) {
+            gTargets[1].ring.sample(f, l, r); assert(l == 0.375f && r == 0.375f);
+        }
+        // Disabling the output still clears the committed region. After a full window
+        // wrap, re-enabling it cannot resurrect those already committed samples.
+        SonaMixReset(wrapStart);
+        SonaMixAccumulate(1, wrapStart, 0, block, 1);
+        gTargets[1].active = false; gTargets[1].ring.flush();
+        SonaMixCommit(1, wrapStart + 64);
+        for (int i = 0; i < 2; ++i) SonaMixCommit(1, gMixedUpTo + kMixWindowFrames / 2);
+        gTargets[1].active = true;
+        SonaMixCommit(1, gMixedUpTo + 64);
+        assert(gTargets[1].ring.available() == 64);
+        for (uint32_t f = 0; f < 64; ++f) {
+            gTargets[1].ring.sample(f, l, r); assert(l == 0 && r == 0);
+        }
         gTargets[0].active = false; gTargets[1].active = false;
         gTargets[0].ring.flush(); gTargets[1].ring.flush();
         for (auto& c : gClients) { c.used = false; c.instance = 0; }
@@ -626,6 +716,7 @@ int main() {
             gIORunning = true;
             SonaEngineSetIORunning(false);
             SonaEngineSetIORunning(true);
+            sampleTime = 0; // The real driver's StartIO resets its virtual timeline.
             render(0, expectedA, expectedB);
             const auto instance = gClients[0].instance.load();
             SonaEngineClientRemove(0, instance);

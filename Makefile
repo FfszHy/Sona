@@ -156,7 +156,15 @@ test-clock:
 	$(DRIVER_DIR)/build/ClockTests
 
 .PHONY: test-all
-test-all: test test-audio test-app test-transport test-clock test-driver-boundary check-driver-boundary
+test-all: test test-audio test-app test-transport test-clock test-snapshot test-driver-boundary check-driver-boundary
+
+# Concurrent snapshot ownership; no HAL or live service is used.
+.PHONY: test-snapshot
+test-snapshot:
+	@mkdir -p $(DRIVER_DIR)/build
+	$(CXX) -isysroot $(SDK) -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -fblocks -framework CoreAudio -framework CoreFoundation \
+		$(DRIVER_DIR)/Tests/SnapshotTests.cpp $(DRIVER_DIR)/SonaTransportClient.cpp -o $(DRIVER_DIR)/build/SnapshotTests
+	$(DRIVER_DIR)/build/SnapshotTests
 
 # Shared-memory transport: layout, SPSC ring, drop/discontinuity, cross-thread stress.
 .PHONY: test-transport
@@ -217,6 +225,23 @@ test-audio:
 	$(CXX) -isysroot $(SDK) -std=c++17 -O2 -Wall -Wextra -framework CoreAudio -framework CoreFoundation \
 		$(SERVICE_DIR)/Tests/ResamplerTests.cpp $(SERVICE_DIR)/SonaTarget.cpp -o $(SERVICE_DIR)/build/ResamplerTests
 	$(SERVICE_DIR)/build/ResamplerTests
+	$(CXX) -isysroot $(SDK) -std=c++17 -O2 -Wall -Wextra \
+		$(SERVICE_DIR)/Tests/ResamplerBench.cpp -o $(SERVICE_DIR)/build/ResamplerBench
+	$(SERVICE_DIR)/build/ResamplerBench --check
+
+# Offline medians against the original loops; these do not measure live CPU or energy.
+.PHONY: bench-resampler bench-mixer
+bench-resampler:
+	@mkdir -p $(SERVICE_DIR)/build
+	$(CXX) -isysroot $(SDK) -std=c++17 -O2 -Wall -Wextra \
+		$(SERVICE_DIR)/Tests/ResamplerBench.cpp -o $(SERVICE_DIR)/build/ResamplerBench
+	$(SERVICE_DIR)/build/ResamplerBench
+
+bench-mixer:
+	@mkdir -p $(SERVICE_DIR)/build
+	$(CXX) -isysroot $(SDK) -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -fblocks -framework CoreAudio -framework CoreFoundation \
+		$(SERVICE_DIR)/Tests/MixerBench.cpp $(SERVICE_DIR)/SonaTarget.cpp -o $(SERVICE_DIR)/build/MixerBench
+	$(SERVICE_DIR)/build/MixerBench
 
 .PHONY: test-app
 test-app:
@@ -227,3 +252,5 @@ test-app:
 	$(APP_DIR)/build/AppAudioSettingTests
 	swiftc $(APP_DIR)/Sources/Sona/OutputPickerPlacement.swift $(APP_DIR)/Tests/OutputPickerPlacementTests.swift -o $(APP_DIR)/build/OutputPickerPlacementTests
 	$(APP_DIR)/build/OutputPickerPlacementTests
+	swiftc $(APP_DIR)/Sources/Sona/SonaProtocol.swift $(APP_DIR)/Sources/Sona/PreferenceSaver.swift $(APP_DIR)/Tests/PreferenceSaverTests.swift -o $(APP_DIR)/build/PreferenceSaverTests
+	$(APP_DIR)/build/PreferenceSaverTests

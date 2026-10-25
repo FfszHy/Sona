@@ -37,8 +37,11 @@ public:
         auto center = uint32_t(position);
         double fraction = position - center;
         double l = 0, r = 0, sum = 0;
+        // kResolution is a power of two: folding this exact scale removes one
+        // multiply per tap without changing the kernel coordinates.
+        const double kernelScale = cutoff * kResolution;
         for (int tap = -radius; tap <= radius; ++tap) {
-            double x = std::fabs((tap - fraction) * cutoff) * kResolution;
+            double x = std::fabs((tap - fraction) * kernelScale);
             if (x >= kLobes * kResolution) continue;
             auto index = size_t(x);
             float weight = sKernel[index] + float(x - index) * (sKernel[index + 1] - sKernel[index]);

@@ -476,9 +476,11 @@ static OSStatus Sona_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, Au
 
 #define SONA_REQUIRE_SIZE(n) do { if (inDataSize < (n)) return kAudioHardwareBadPropertySizeError; } while (0)
 
-static CFPropertyListRef SonaCopySnapshot(CFTypeRef snapshot, CFTypeRef emptyValue) {
+// Keep the typed slot by reference so its pointer is first read under the lock.
+template <typename T>
+static CFPropertyListRef SonaCopySnapshot(const T& snapshot) {
     std::lock_guard<std::mutex> lock(gSnapshotMutex);
-    return CFRetain(snapshot ? snapshot : emptyValue);
+    return snapshot ? CFRetain(snapshot) : nullptr;
 }
 
 static OSStatus Sona_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t,
@@ -601,28 +603,29 @@ static OSStatus Sona_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioO
                 }
                 case kSonaProperty_Config: {
                     SONA_REQUIRE_SIZE(sizeof(CFPropertyListRef));
-                    CFDictionaryRef empty = CFDictionaryCreate(kCFAllocatorDefault, nullptr, nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-                    *(CFPropertyListRef*)outData = SonaCopySnapshot(gConfig, empty);
-                    CFRelease(empty);
+                    CFPropertyListRef snapshot = SonaCopySnapshot(gConfig);
+                    *(CFPropertyListRef*)outData = snapshot ? snapshot : CFDictionaryCreate(kCFAllocatorDefault, nullptr, nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
                     *outDataSize = sizeof(CFPropertyListRef);
                     return noErr;
                 }
                 case kSonaProperty_OutputLevel:
                 case kSonaProperty_Status: {
                     SONA_REQUIRE_SIZE(sizeof(CFPropertyListRef));
-                    CFMutableDictionaryRef offline = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-                    CFDictionarySetValue(offline, CFSTR(kSonaStatusKey_Version), CFSTR(kSonaDriverVersion));
-                    CFDictionarySetValue(offline, CFSTR("serviceConnected"), kCFBooleanFalse);
-                    *(CFPropertyListRef*)outData = SonaCopySnapshot(gStatus, offline);
-                    CFRelease(offline);
+                    CFPropertyListRef snapshot = SonaCopySnapshot(gStatus);
+                    if (!snapshot) {
+                        CFMutableDictionaryRef offline = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+                        CFDictionarySetValue(offline, CFSTR(kSonaStatusKey_Version), CFSTR(kSonaDriverVersion));
+                        CFDictionarySetValue(offline, CFSTR("serviceConnected"), kCFBooleanFalse);
+                        snapshot = offline;
+                    }
+                    *(CFPropertyListRef*)outData = snapshot;
                     *outDataSize = sizeof(CFPropertyListRef);
                     return noErr;
                 }
                 case kSonaProperty_Clients: {
                     SONA_REQUIRE_SIZE(sizeof(CFPropertyListRef));
-                    CFArrayRef empty = CFArrayCreate(kCFAllocatorDefault, nullptr, 0, &kCFTypeArrayCallBacks);
-                    *(CFPropertyListRef*)outData = SonaCopySnapshot(gClientsList, empty);
-                    CFRelease(empty);
+                    CFPropertyListRef snapshot = SonaCopySnapshot(gClientsList);
+                    *(CFPropertyListRef*)outData = snapshot ? snapshot : CFArrayCreate(kCFAllocatorDefault, nullptr, 0, &kCFTypeArrayCallBacks);
                     *outDataSize = sizeof(CFPropertyListRef);
                     return noErr;
                 }

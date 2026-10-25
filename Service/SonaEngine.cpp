@@ -18,6 +18,7 @@
 #include <atomic>
 #include <climits>
 #include <cmath>
+#include <condition_variable>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -109,6 +110,9 @@ static std::string               gServiceSessionID;    // new UUID for every att
 static std::atomic<uint64_t>     gMixerPass{0};          // odd while the mixer thread is inside a pass
 static std::atomic<uint32_t>     gMixResetRequested{0};  // control queue -> mixer thread
 static std::atomic<uint32_t>     gFormatGeneration{0};
+static std::atomic<uint64_t>     gMixerDrainUntil{0};
+static std::mutex               gMixerWaitMutex;
+static std::condition_variable  gMixerWake;
 static_assert(SonaEngineRetireTicket::kSinks == kMaxTargets, "retire ticket covers every sink");
 
 static void SonaRefreshOutputControls(AudioObjectID device);
@@ -498,6 +502,23 @@ static UInt64 gTargetStopGeneration[kMaxTargets] = {};
 static bool gTargetStopPending[kMaxTargets] = {};
 static constexpr int64_t kTargetIdleDelay = 2 * NSEC_PER_SEC;
 
+// Only the control queue and an idle mixer take this mutex. The running audio path
+// keeps its 1 ms schedule; the predicate plus this lock prevents a lost start wakeup.
+static void SonaWakeMixer() {
+    std::lock_guard<std::mutex> lock(gMixerWaitMutex);
+    gMixerWake.notify_one();
+}
+
+static bool SonaMixerHasWork(uint64_t now) {
+    return gRegion.load(std::memory_order_acquire) &&
+        (gIORunning.load(std::memory_order_acquire) || now < gMixerDrainUntil.load(std::memory_order_acquire));
+}
+
+static void SonaMixerWaitForWork() {
+    std::unique_lock<std::mutex> lock(gMixerWaitMutex);
+    gMixerWake.wait(lock, [] { return SonaMixerHasWork(mach_absolute_time()); });
+}
+
 // Demand: every registered client while the virtual device runs. The host does not tell us
 // which clients are producing, so all routes of registered clients stay open while IO runs.
 static UInt32 SonaNeededTargetMask() {
@@ -817,6 +838,7 @@ static void SonaUpdateActivityTimer() {
 static constexpr uint32_t kMixWindowFrames = 1u << 14;   // per-sink accumulator (power of two)
 static constexpr uint32_t kMixWindowMask   = kMixWindowFrames - 1;
 static float    gMixAccum[kMaxTargets][kMixWindowFrames * 2];
+static double   gMixSinkEnd[kMaxTargets] = {}; // last uncleared audio position per sink; mixer only
 static bool     gMixTimelineValid = false;
 static double   gMixedUpTo = 0;         // Sona sample time up to which sinks have been written
 static double   gMixAccumEnd = -1;      // end of the newest audio accumulated; [gMixedUpTo, here) is still owed
@@ -830,6 +852,7 @@ static uint64_t gMixLeadWindowStart = 0;
 static void SonaMixResetAnchor() { gMixAnchorValid = false; gMixMinLead[0] = gMixMinLead[1] = INT64_MAX; }
 static void SonaMixReset(double sampleTime) {
     for (auto& accum : gMixAccum) memset(accum, 0, sizeof(accum));
+    for (auto& end : gMixSinkEnd) end = -1;
     gMixTimelineValid = sampleTime >= 0;
     gMixedUpTo = sampleTime;
     gMixAccumEnd = sampleTime;
@@ -866,6 +889,7 @@ static inline void SonaMixAccumulate(uint32_t sink, double start, uint32_t skip,
         uint32_t idx = (uint32_t)((base + f) & kMixWindowMask) * 2;
         accum[idx] += b.second[i * 2] * gain; accum[idx + 1] += b.second[i * 2 + 1] * gain;
     }
+    gMixSinkEnd[sink] = std::max(gMixSinkEnd[sink], start + b.desc.frames);
 }
 
 static inline bool SonaBlockHasSignal(const SonaTransportReadBlock& b) {
@@ -880,19 +904,27 @@ static void SonaMixCommit(UInt32 defaultMask, double commitTo) {
     if (commitTo <= gMixedUpTo) return;
     const uint32_t frames = (uint32_t)std::min<double>(commitTo - gMixedUpTo, kMixWindowFrames / 2);
     const float master = SonaMasterGain();
-    static float scratch[kMixWindowFrames * 2];
+    const uint32_t index = uint32_t((uint64_t)gMixedUpTo & kMixWindowMask);
+    const uint32_t firstFrames = std::min(frames, kMixWindowFrames - index);
+    const uint32_t secondFrames = frames - firstFrames;
     for (UInt32 sink = 0; sink < kMaxTargets; ++sink) {
         SonaTarget& t = gTargets[sink];
+        const bool active = t.active.load(std::memory_order_acquire);
+        const bool dirty = gMixSinkEnd[sink] > gMixedUpTo;
+        if (!active && !dirty) continue;
         float* accum = gMixAccum[sink];
-        const uint64_t base = (uint64_t)gMixedUpTo;
-        for (uint32_t f = 0; f < frames; ++f) {
-            uint32_t idx = (uint32_t)((base + f) & kMixWindowMask) * 2;
-            scratch[f * 2] = accum[idx]; scratch[f * 2 + 1] = accum[idx + 1];
-            accum[idx] = accum[idx + 1] = 0;
+        float* first = accum + index * 2;
+        if (active) {
+            const bool isDefault = (defaultMask & (1u << sink)) != 0;
+            t.ring.write(first, firstFrames, accum, secondFrames,
+                         isDefault ? master : gOutputControls[sink].gain.load(std::memory_order_relaxed));
         }
-        if (!t.active.load(std::memory_order_acquire)) continue;
-        const bool isDefault = (defaultMask & (1u << sink)) != 0;
-        t.ring.write(scratch, frames, isDefault ? master : gOutputControls[sink].gain.load(std::memory_order_relaxed));
+        if (dirty) {
+            // Inactive outputs still clear committed samples instead of leaving
+            // them behind on window wrap. Clean, inactive outputs need no PCM work.
+            memset(first, 0, firstFrames * 2 * sizeof(float));
+            if (secondFrames) memset(accum, 0, secondFrames * 2 * sizeof(float));
+        }
     }
     gMixedUpTo += frames;
 }
@@ -1022,7 +1054,13 @@ static void* SonaMixerThread(void*) {
                       (thread_policy_t)&policy, THREAD_TIME_CONSTRAINT_POLICY_COUNT);
     uint64_t next = mach_absolute_time();
     for (;;) {
-        next += periodTicks;
+        if (!SonaMixerHasWork(mach_absolute_time())) {
+            // Reader pass is even here: a parked thread cannot keep a retired region alive.
+            SonaMixerWaitForWork();
+            next = mach_absolute_time();
+        }
+        // Skip missed ticks instead of replaying every expired deadline after a stall.
+        next = std::max(next + periodTicks, mach_absolute_time());
         mach_wait_until(next);
         // Reader pass (odd = inside). The increment is ordered before the pointer load and both
         // are sequentially consistent, which is what lets SonaEngineDetachRegion prove that a
@@ -1066,6 +1104,7 @@ void SonaEngineAttachRegion(void* region, uint64_t generation) {
     for (auto& t : gTargets) t.clockCell.store(cell, std::memory_order_release);
     gMixResetRequested.store(1, std::memory_order_release);   // the mixer starts the new timeline itself
     gRegion.store(region, std::memory_order_release);
+    SonaWakeMixer();
     SonaLog("engine attached region generation %llu", generation);
     SonaPushStatus();
 }
@@ -1090,6 +1129,8 @@ SonaEngineRetireTicket SonaEngineDetachRegion() {
         gClients[i].bundleID.clear(); gClients[i].key.clear();
     }
     gIORunning.store(false);
+    gMixerDrainUntil.store(0, std::memory_order_release);
+    SonaWakeMixer();
     SonaUpdateActivityTimer();
     gMixResetRequested.store(1, std::memory_order_release);   // mixer state belongs to the mixer thread
     SonaPushClients();
@@ -1146,7 +1187,12 @@ void SonaEngineSetFormat(double sampleRate, uint32_t formatGeneration) {
 
 void SonaEngineSetIORunning(bool running) {
     if (running == gIORunning.load()) return;
-    gIORunning.store(running);
+    // Keep consuming queued blocks and accumulator tails for the same grace period
+    // as the physical sinks. No region/ring access is needed while parked afterward.
+    if (running) gMixResetRequested.store(1, std::memory_order_release); // Driver StartIO resets sampleTime to zero.
+    gMixerDrainUntil.store(running ? 0 : mach_absolute_time() + (uint64_t)(gHostTicksPerSecond * kTargetIdleDelay / NSEC_PER_SEC), std::memory_order_release);
+    gIORunning.store(running, std::memory_order_release);
+    SonaWakeMixer();
     SonaStartTargetsIfNeeded();
     SonaUpdateActivityTimer();
     SonaPushStatus();

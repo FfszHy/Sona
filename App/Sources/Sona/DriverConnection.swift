@@ -15,7 +15,6 @@ final class DriverConnection {
     var onStatusChanged: (@MainActor () -> Void)?
 
     var isInstalled: Bool { FileManager.default.fileExists(atPath: SonaProtocol.driverBundlePath) }
-    var isConnected: Bool { deviceID != nil }
 
     /// Locates the device. Returns true if the device is present (freshly found or already known).
     @discardableResult
@@ -52,8 +51,6 @@ final class DriverConnection {
                                 played: d["played"] as? Bool ?? (d["running"] as? Bool ?? false))
         }
     }
-
-    func fetchStatus() -> DriverStatus? { Self.readStatus(deviceID: deviceID) }
 
     @MainActor
     func fetchStatusInBackground() async -> DriverStatus? {

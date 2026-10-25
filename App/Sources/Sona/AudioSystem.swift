@@ -129,29 +129,6 @@ enum AudioSystem {
         return id
     }
 
-    /// PIDs of every process the HAL reports as currently running output on `device`.
-    /// Public API, no TCC.
-    static func pidsRunningOutput(on device: AudioObjectID) -> Set<pid_t> {
-        var addr = address(kAudioHardwarePropertyProcessObjectList)
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) == noErr else { return [] }
-        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &ids) == noErr else { return [] }
-        var result = Set<pid_t>()
-        for p in ids where getUInt32(p, kAudioProcessPropertyIsRunningOutput) == 1 {
-            var devAddr = address(kAudioProcessPropertyDevices, scope: kAudioObjectPropertyScopeOutput)
-            var devSize: UInt32 = 0
-            guard AudioObjectGetPropertyDataSize(p, &devAddr, 0, nil, &devSize) == noErr, devSize > 0 else { continue }
-            var devs = [AudioObjectID](repeating: 0, count: Int(devSize) / MemoryLayout<AudioObjectID>.size)
-            guard AudioObjectGetPropertyData(p, &devAddr, 0, nil, &devSize, &devs) == noErr, devs.contains(device) else { continue }
-            var pidAddr = address(kAudioProcessPropertyPID)
-            var pid: pid_t = 0
-            var pidSize = UInt32(MemoryLayout<pid_t>.size)
-            if AudioObjectGetPropertyData(p, &pidAddr, 0, nil, &pidSize, &pid) == noErr { result.insert(pid) }
-        }
-        return result
-    }
-
     @discardableResult
     static func setDefaultOutputDevice(_ device: AudioObjectID, systemSoundsToo: Bool = true) -> OSStatus {
         var id = device
