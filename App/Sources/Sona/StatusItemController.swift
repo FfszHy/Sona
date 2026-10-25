@@ -42,6 +42,7 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
         content.view.clipsToBounds = false
         content.rootView = makeContentView(maxHeight: .infinity)
         panel.contentViewController = container
+        panel.primaryContentView = content.view
         panel.backgroundColor = .clear
         panel.isOpaque = false
         // Keep each module's optical edge without a window-sized shadow.
@@ -108,7 +109,7 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
               let appearance = NSAppearance(named: name) else { return }
         // Each module's glass and hosted controls inherit this appearance.
         // LiquidGlassCard refreshes its native tint when that appearance changes.
-        contentController.view.appearance = appearance
+        contentController.parent?.view.appearance = appearance
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -148,6 +149,7 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
 
     private func hidePanel(animated: Bool = true) {
         guard isPanelPresented || (!animated && panel.isVisible) else { return }
+        OutputDevicePicker.dismissActive()
         isPanelPresented = false
         panel.ignoresMouseEvents = true
         statusItem.button?.highlight(false)
@@ -218,13 +220,14 @@ final class StatusItemController: NSObject, NSWindowDelegate, NSMenuDelegate {
         let fitting = contentController.view.fittingSize
         let size = NSSize(width: min(max(1, ideal.width > 0 ? ideal.width : fitting.width), visible.width),
                           height: min(max(1, ideal.height > 0 ? ideal.height : fitting.height), availableHeight))
-        let origin = NSPoint(x: min(max(anchor.midX - size.width / 2, visible.minX), visible.maxX - size.width),
+        let origin = NSPoint(x: OutputPickerPlacement.mainPanelOriginX(anchorMidX: anchor.midX,
+                                                                      panelWidth: size.width,
+                                                                      visibleFrame: visible),
                              y: top - size.height)
         // A flipped transparent container keeps the host at the same top-left
         // point, including outgoing SwiftUI content during a height reduction.
-        let hostFrame = NSRect(origin: .zero, size: size)
-        if contentController.view.frame != hostFrame {
-            contentController.view.frame = hostFrame
+        if contentController.view.frame.size != size {
+            contentController.view.setFrameSize(size)
         }
         panel.setRestingFrame(NSRect(origin: origin, size: size),
                               animated: animated && !availableHeightChanged && isPanelPresented && panel.isVisible)
@@ -272,10 +275,44 @@ private final class TopAlignedPanelContentView: NSView {
 }
 
 /// A borderless panel still participates in native keyboard focus and Escape dismissal.
-private final class SoundPanel: NSPanel {
+private final class SoundPanel: NSPanel, OutputPickerHosting {
     var onCancel: (() -> Void)?
     var reducesMotion = false
+    weak var primaryContentView: NSView?
     private var targetRestingFrame: NSRect?
+    private var outputPickerController: NSViewController?
+    private var outputPickerScreenFrame: NSRect?
+
+    var outputPickerPrimaryFrame: NSRect { revealedFrame(restingFrame) }
+
+    func showOutputPicker(_ controller: NSViewController, screenFrame: NSRect) {
+        guard let container = contentViewController else { return }
+        if outputPickerController !== controller {
+            if let current = outputPickerController { removeOutputPicker(current) }
+            container.addChild(controller)
+            container.view.addSubview(controller.view)
+            controller.view.autoresizingMask = []
+            controller.view.clipsToBounds = false
+            outputPickerController = controller
+        }
+        outputPickerScreenFrame = screenFrame
+        applyPresentedFrame()
+    }
+
+    func positionOutputPicker(screenFrame: NSRect) {
+        guard outputPickerController != nil, outputPickerScreenFrame != screenFrame else { return }
+        outputPickerScreenFrame = screenFrame
+        applyPresentedFrame()
+    }
+
+    func removeOutputPicker(_ controller: NSViewController) {
+        guard outputPickerController === controller else { return }
+        controller.view.removeFromSuperview()
+        controller.removeFromParent()
+        outputPickerController = nil
+        outputPickerScreenFrame = nil
+        applyPresentedFrame()
+    }
 
     // AppKit interpolates the native window geometry without scaling its glass
     // or its controls. Re-targeting starts from the current on-screen rectangle.
@@ -312,12 +349,23 @@ private final class SoundPanel: NSPanel {
 
     private func applyPresentedFrame() {
         guard targetRestingFrame != nil else { return }
-        let presentedFrame = revealedFrame(restingFrame)
-        guard self.frame != presentedFrame else { return }
-        if self.frame.size == presentedFrame.size {
-            setFrameOrigin(presentedFrame.origin)
-        } else {
-            setFrame(presentedFrame, display: isVisible)
+        let primaryFrame = outputPickerPrimaryFrame
+        let canvasFrame = outputPickerScreenFrame.map { primaryFrame.union($0) } ?? primaryFrame
+        if self.frame != canvasFrame {
+            if self.frame.size == canvasFrame.size {
+                setFrameOrigin(canvasFrame.origin)
+            } else {
+                setFrame(canvasFrame, display: isVisible)
+            }
+        }
+        // Keep both glass surfaces in one key window. The native canvas may grow
+        // around them, but each surface retains its screen position and size.
+        primaryContentView?.setFrameOrigin(NSPoint(x: primaryFrame.minX - canvasFrame.minX,
+                                                   y: canvasFrame.maxY - primaryFrame.maxY))
+        if let pickerFrame = outputPickerScreenFrame, let picker = outputPickerController?.view {
+            picker.frame = NSRect(x: pickerFrame.minX - canvasFrame.minX,
+                                  y: canvasFrame.maxY - pickerFrame.maxY,
+                                  width: pickerFrame.width, height: pickerFrame.height)
         }
     }
 
@@ -330,4 +378,15 @@ private final class SoundPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
     override func cancelOperation(_ sender: Any?) { onCancel?() }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown || event.type == .rightMouseDown {
+            let point = convertPoint(toScreen: event.locationInWindow)
+            if !outputPickerPrimaryFrame.contains(point) && outputPickerScreenFrame?.contains(point) != true {
+                onCancel?()
+                return
+            }
+        }
+        super.sendEvent(event)
+    }
 }

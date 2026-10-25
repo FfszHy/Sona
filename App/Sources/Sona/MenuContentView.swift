@@ -142,6 +142,7 @@ struct MenuContentView: View {
                         volume: model.outputVolume(device.uid),
                         muted: model.outputMuted(device.uid),
                         onVolume: { model.setOutputVolume($0, uid: device.uid) },
+                        showDeviceName: model.routedOutputDevices.count > 1,
                         controlLabel: device.name,
                         unavailableReason: model.canControlOutput(device.uid)
                             ? nil : "设备准备中；旧版驱动需更新后才能调节",
@@ -162,11 +163,13 @@ struct MenuContentView: View {
     }
 
     private var outputPicker: some View {
-        DeviceMenu(devices: model.outputDevices,
-                   selected: model.defaultTargetUID,
-                   onSelect: { model.selectDefaultTarget($0) })
-            .accessibilityLabel("切换输出设备")
-            .help("切换输出设备：" + model.deviceName(forUID: model.defaultTargetUID))
+        OutputDevicePicker(devices: model.outputDevices,
+                           selected: Set([model.defaultTargetUID]),
+                           allowsMultiple: false,
+                           title: "默认输出",
+                           icon: .airPlay,
+                           volumeRowOffset: model.routedOutputDevices.count > 1 ? 48 : 34,
+                           onSelect: { model.selectDefaultTarget($0) })
     }
 
     // MARK: - Apps
@@ -240,6 +243,7 @@ private struct AppCard: View {
                         volume: model.appVolume(device.uid, for: app.key),
                         muted: setting.mute,
                         onVolume: { model.setAppVolume($0, uid: device.uid, for: app.key) },
+                        showDeviceName: devices.count > 1,
                         controlLabel: app.name + " · " + device.name,
                         onEditingChanged: { model.setAppEditing($0, for: app.key) }
                     )
@@ -256,11 +260,13 @@ private struct AppCard: View {
             .animation(SonaMotion.content(reduceMotion: reduceMotion), value: devices.map(\.uid))
             .disabled(!model.canControlAppOutputs)
         } outputPicker: {
-            DeviceSelectionButtons(
+            OutputDevicePicker(
                 devices: model.outputDevices,
                 selected: Set(setting.selectedTargetUIDs(defaultTarget: model.defaultTargetUID)),
-                appName: app.name,
-                onToggle: { model.toggleTarget($0, for: app.key) }
+                allowsMultiple: true,
+                title: app.name + "输出",
+                volumeRowOffset: devices.count > 1 ? 48 : 34,
+                onSelect: { model.toggleTarget($0, for: app.key) }
             )
             .disabled(!model.canControlAppOutputs)
         }
@@ -314,40 +320,53 @@ private struct DeviceVolumeRow: View {
     let volume: Double
     let muted: Bool
     let onVolume: (Double) -> Void
+    var showDeviceName = false
     var controlLabel: String = ""
     var unavailableReason: String? = nil
     var onEditingChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
-        HStack(spacing: 8) {
-            DeviceSymbol(device: device)
-                .font(.system(size: 13)).frame(width: 16)
-                .help(device.name)
-                .accessibilityHidden(true)
-            ZStack(alignment: .leading) {
-                SoundSlider(value: muted ? 0 : volume, label: controlLabel + "音量",
-                            onChange: onVolume, onEditingChanged: onEditingChanged)
-                    .opacity(unavailableReason == nil ? 1 : 0)
-                    .accessibilityHidden(unavailableReason != nil)
-                if let unavailableReason {
-                    Text(unavailableReason)
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .help(unavailableReason)
-                        .accessibilityLabel(controlLabel + "，" + unavailableReason)
-                        .transition(.opacity)
-                }
+        VStack(alignment: .leading, spacing: 2) {
+            if showDeviceName {
+                Text(device.name)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.leading, 24)
+                    .help(device.name)
+                    .accessibilityHidden(true)
             }
-            // Routing state arrives before the hardware level snapshot. Keep
-            // pending/ready in the same slot instead of inserting a second row
-            // that would reverse the card's height as soon as status arrives.
-            .frame(height: UI.control)
-            .animation(SonaMotion.feedback(reduceMotion: reduceMotion), value: unavailableReason)
-            .onDisappear { onEditingChanged(false) }
-            .layoutPriority(1)
-            Image(systemName: "speaker.wave.3.fill")
-                .font(.system(size: 16)).frame(width: 24)
-                .accessibilityHidden(true)
+            HStack(spacing: 8) {
+                DeviceSymbol(device: device)
+                    .font(.system(size: 13)).frame(width: 16)
+                    .help(device.name)
+                    .accessibilityHidden(true)
+                ZStack(alignment: .leading) {
+                    SoundSlider(value: muted ? 0 : volume, label: controlLabel + "音量",
+                                onChange: onVolume, onEditingChanged: onEditingChanged)
+                        .opacity(unavailableReason == nil ? 1 : 0)
+                        .accessibilityHidden(unavailableReason != nil)
+                    if let unavailableReason {
+                        Text(unavailableReason)
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .help(unavailableReason)
+                            .accessibilityLabel(controlLabel + "，" + unavailableReason)
+                            .transition(.opacity)
+                    }
+                }
+                // Routing state arrives before the hardware level snapshot. Keep
+                // pending/ready in the same slot instead of inserting a second row
+                // that would reverse the card's height as soon as status arrives.
+                .frame(height: UI.control)
+                .animation(SonaMotion.feedback(reduceMotion: reduceMotion), value: unavailableReason)
+                .onDisappear { onEditingChanged(false) }
+                .layoutPriority(1)
+                Image(systemName: "speaker.wave.3.fill")
+                    .font(.system(size: 16)).frame(width: 24)
+                    .accessibilityHidden(true)
+            }
         }
     }
 }
@@ -364,115 +383,11 @@ private struct Card<Content: View>: View {
     }
 }
 
-/// A device has the same symbol in its routing button and volume row.
+/// A device has the same symbol in the picker list and volume row.
 private struct DeviceSymbol: View {
     let device: OutputDevice
-    var fittingSize: CGFloat? = nil
-
-    @ViewBuilder
-    var body: some View {
-        if let fittingSize {
-            Image(systemName: device.symbolName)
-                .resizable()
-                .symbolRenderingMode(.palette)
-                .scaledToFit()
-                .frame(width: fittingSize, height: fittingSize)
-        } else {
-            Image(systemName: device.symbolName)
-        }
-    }
-}
-
-/// Keep the existing native glass button material for both routing controls.
-private enum DeviceControlStyle {
-    static let selectedSymbolColor = Color(red: 100 / 255, green: 176 / 255, blue: 1)
-
-    static func glass(selected: Bool = false) -> GlassButtonStyle {
-        if #available(macOS 26.1, *) {
-            // Tint the native material itself; keep the optical edge and pressed
-            // feedback without adding another filled background over the glass.
-            return GlassButtonStyle(.clear.tint(selected ? .white.opacity(0.16) : nil))
-        }
-        return GlassButtonStyle()
-    }
-}
-
-/// Independent multi-select state with a neutral native surface and a blue symbol.
-private struct DeviceSelectionButton: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let device: OutputDevice
-    let isSelected: Bool
-    let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            DeviceSymbol(device: device, fittingSize: 16)
-                .fontWeight(.medium)
-                .foregroundStyle(isSelected ? DeviceControlStyle.selectedSymbolColor : Color.secondary)
-        }
-        .buttonStyle(DeviceControlStyle.glass(selected: isSelected))
-        .buttonBorderShape(.circle)
-        .frame(width: UI.control, height: UI.control)
-        .animation(SonaMotion.feedback(reduceMotion: reduceMotion), value: isSelected)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityValue(isSelected ? "已选中" : "未选中")
-    }
-}
-
-/// Available devices stay directly reachable, including when the strip overflows.
-private struct DeviceSelectionButtons: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let devices: [OutputDevice]
-    let selected: Set<String>
-    let appName: String
-    let onToggle: (String) -> Void
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(devices, id: \.uid) { device in
-                    let isSelected = selected.contains(device.uid)
-                    DeviceSelectionButton(device: device, isSelected: isSelected) {
-                        onToggle(device.uid)
-                    }
-                    .accessibilityLabel(appName + "输出到" + device.name)
-                    .help(device.name + (isSelected ? "：已选中，点击停止输出" : "：未选中，点击输出"))
-                    .transition(SonaMotion.transition(reduceMotion: reduceMotion))
-                }
-            }
-            .animation(SonaMotion.content(reduceMotion: reduceMotion), value: devices.map(\.uid))
-        }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        .scrollClipDisabled(false)
-        .frame(width: min(CGFloat(devices.count) * UI.control + CGFloat(max(0, devices.count - 1)) * 6, 130),
-               height: UI.control)
-    }
-}
-
-/// The top-level menu retains single selection for the default output.
-private struct DeviceMenu: View {
-    let devices: [OutputDevice]
-    let selected: String
-    let onSelect: (String) -> Void
-
-    var body: some View {
-        Menu {
-            ForEach(devices, id: \.uid) { device in
-                Button { onSelect(device.uid) } label: {
-                    let isOutput = selected == device.uid
-                    Text(isOutput ? "\(device.name)  •" : device.name)
-                        .accessibilityLabel(isOutput ? "\(device.name)，当前输出" : device.name)
-                }
-            }
-        } label: {
-            Image(systemName: "airplay.audio")
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 14, height: 14)
-        }
-        .menuStyle(.button)
-        .buttonStyle(DeviceControlStyle.glass())
-        .buttonBorderShape(.circle)
-        .menuIndicator(.hidden)
-        .frame(width: UI.control, height: UI.control)
+        Image(systemName: device.symbolName)
     }
 }

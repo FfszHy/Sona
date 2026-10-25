@@ -25,15 +25,15 @@ Sona 通过虚拟音频输出与独立音频服务处理声音，不申请麦克
 
 ## 开始使用
 
-**Sona 1.0.0 · macOS 26 或更高版本 · Apple Silicon**
+**Sona 1.1.0 · macOS 26 或更高版本 · Apple Silicon**
 
-[下载 Sona 1.0.0](https://github.com/FfszHy/Sona/releases/download/v1.0.0/Sona-1.0.0.pkg) · [版本说明](https://github.com/FfszHy/Sona/releases/tag/v1.0.0)
+[下载 Sona 1.1.0](https://github.com/FfszHy/Sona/releases/download/v1.1.0/Sona-1.1.0.pkg) · [版本说明](https://github.com/FfszHy/Sona/releases/tag/v1.1.0)
 
-此版本未使用 Developer ID 签名，也未经过 Apple 公证。安装帮助见[版本说明](https://github.com/FfszHy/Sona/releases/tag/v1.0.0)。
+此版本未使用 Developer ID 签名，也未经过 Apple 公证。安装帮助见[版本说明](https://github.com/FfszHy/Sona/releases/tag/v1.1.0)。
 
 1. 使用管理员权限运行安装包，然后打开 Sona。
-2. 点击菜单栏图标，再点击「声音」右侧的设备按钮，选择默认输出。
-3. 播放音频后，应用会显示在「应用」列表中。选中输出设备后可分别调节其音量；取消全部设备即让该应用无输出，直到重新选择输出、重启该应用或重启 Sona。仅选中当前默认设备时，恢复跟随默认输出。
+2. 点击菜单栏图标，悬停或点击「声音」右侧的输出图标，在右侧列表中单选默认输出。
+3. 播放音频后，应用会显示在面板中。悬停应用右侧的输出图标可展开设备列表，支持连续多选，再次点击设备可取消；移出图标与列表后自动收起。多路输出的音量条会显示小号设备名。取消全部设备即让该应用无输出，直到重新选择输出、重启该应用或重启 Sona。仅选中当前默认设备时，恢复跟随默认输出。
 
 手动选择其他设备、多选或取消全部设备后，更改默认输出会保留这些选择。
 

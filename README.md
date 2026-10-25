@@ -25,15 +25,15 @@ Sona uses a virtual audio output and a separate audio service. It does not reque
 
 ## Get started
 
-**Sona 1.0.0 · macOS 26 or later · Apple Silicon**
+**Sona 1.1.0 · macOS 26 or later · Apple Silicon**
 
-[Download Sona 1.0.0](https://github.com/FfszHy/Sona/releases/download/v1.0.0/Sona-1.0.0.pkg) · [Release notes](https://github.com/FfszHy/Sona/releases/tag/v1.0.0)
+[Download Sona 1.1.0](https://github.com/FfszHy/Sona/releases/download/v1.1.0/Sona-1.1.0.pkg) · [Release notes](https://github.com/FfszHy/Sona/releases/tag/v1.1.0)
 
-This release is not Developer ID signed or notarized. See the [release notes](https://github.com/FfszHy/Sona/releases/tag/v1.0.0) for installation help.
+This release is not Developer ID signed or notarized. See the [release notes](https://github.com/FfszHy/Sona/releases/tag/v1.1.0) for installation help.
 
 1. Run the installer with administrator access, then open Sona.
-2. Click the menu bar icon and choose your default output with the device button beside **声音** (Sound).
-3. Play audio. Apps appear under **应用** (Apps). Select output devices to show their volume sliders; clearing every device silences that app until you select an output again or restart the app or Sona. Selecting only the current default output resumes following the default.
+2. Click the menu bar icon, then hover over or click the output icon beside **声音** (Sound) to choose one default output from the list on the right.
+3. Play audio. Apps appear in the panel. Hover over an app's output icon to open its device list. Select several outputs without closing the list, and click a selected device again to remove it. The list closes after the pointer leaves both the icon and list. Multiple output sliders show small device names. Clearing every device silences that app until you select an output again or restart the app or Sona. Selecting only the current default output resumes following the default.
 
 Manual choices of another output, multiple outputs or no output stay in place when the default changes.
 

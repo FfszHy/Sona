@@ -4,13 +4,17 @@ import SwiftUI
 /// The panel's existing native material, scoped to one module. Keeping the
 /// controls in contentView preserves the glass/content rendering relationship.
 struct LiquidGlassCard<Content: View>: NSViewControllerRepresentable {
+    var cornerRadius: CGFloat = 26
     @ViewBuilder let content: Content
 
     func makeNSViewController(context: Context) -> LiquidGlassCardController {
-        LiquidGlassCardController(content: hostedContent(context))
+        LiquidGlassCardController(content: hostedContent(context), cornerRadius: cornerRadius)
     }
 
     func updateNSViewController(_ controller: LiquidGlassCardController, context: Context) {
+        if let glass = controller.view as? NSGlassEffectView, glass.cornerRadius != cornerRadius {
+            glass.cornerRadius = cornerRadius
+        }
         // The parent animates card geometry, not every hosted control. Lists
         // inside this stable hosting root opt in using their own structure IDs.
         // Do not disable animations altogether: a changed local list still
@@ -43,14 +47,14 @@ final class LiquidGlassCardController: NSViewController {
     let hostingController: NSHostingController<AnyView>
     let contentContainer: TopAlignedModuleContentView
 
-    init(content: AnyView) {
+    init(content: AnyView, cornerRadius: CGFloat) {
         hostingController = NSHostingController(rootView: content)
         contentContainer = TopAlignedModuleContentView(content: hostingController.view)
         super.init(nibName: nil, bundle: nil)
 
         let glass = ModuleGlassView()
         glass.style = .clear
-        glass.cornerRadius = 26
+        glass.cornerRadius = cornerRadius
         glass.contentView = contentContainer
         addChild(hostingController)
         view = glass

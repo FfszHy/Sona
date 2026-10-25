@@ -225,3 +225,5 @@ test-app:
 	$(APP_DIR)/build/OutputLevelWriterTests
 	swiftc $(APP_DIR)/Sources/Sona/SonaProtocol.swift $(APP_DIR)/Tests/AppAudioSettingTests.swift -o $(APP_DIR)/build/AppAudioSettingTests
 	$(APP_DIR)/build/AppAudioSettingTests
+	swiftc $(APP_DIR)/Sources/Sona/OutputPickerPlacement.swift $(APP_DIR)/Tests/OutputPickerPlacementTests.swift -o $(APP_DIR)/build/OutputPickerPlacementTests
+	$(APP_DIR)/build/OutputPickerPlacementTests
