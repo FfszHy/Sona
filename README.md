@@ -6,9 +6,11 @@ Control each app's volume and audio outputs from the macOS menu bar.
 
 [简体中文](README.zh-CN.md) · [Build & install](#build-from-source) · [Releases](https://github.com/FfszHy/Sona/releases)
 
-https://github.com/user-attachments/assets/e753e580-f469-4e87-b770-f184ebb99b14
+https://github.com/user-attachments/assets/43ab30e6-955b-420e-9e6e-f9c92867369c
 
-Launch film · 26 seconds · silent. Recorded UI with illustrative staging.
+Launch film · 28 seconds · 1080p60 · with music. Recorded UI with illustrative staging.
+
+Music: [Synapse](https://www.silvermansound.com/free-music/synapse) by [Shane Ivers](https://www.silvermansound.com), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Music excerpted, faded and adjusted in loudness for this film.
 
 <img src="pic/sona-menu-bar.png" alt="Sona running on macOS, with a top-level sound volume control and independent volume controls for Safari and NetEase Cloud Music." width="720" />
 

@@ -6,9 +6,11 @@
 
 [English](README.md) · [构建与安装](#从源码构建) · [版本发布](https://github.com/FfszHy/Sona/releases)
 
-https://github.com/user-attachments/assets/e753e580-f469-4e87-b770-f184ebb99b14
+https://github.com/user-attachments/assets/43ab30e6-955b-420e-9e6e-f9c92867369c
 
-发布片 · 26 秒 · 无声。原生界面录屏与创意场景合成。
+发布片 · 28 秒 · 1080p60 · 配乐。原生界面录屏与创意场景合成。
+
+配乐：[Synapse](https://www.silvermansound.com/free-music/synapse)，作者 [Shane Ivers](https://www.silvermansound.com)，采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 许可。本片对音乐进行了截取、淡入淡出与响度调整。
 
 <img src="pic/sona-menu-bar.png" alt="Sona 在 macOS 上的实际运行界面，顶部为声音音量控制，下方为 Safari 浏览器与网易云音乐的独立音量控制。" width="720" />
 
